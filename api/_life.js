@@ -40,11 +40,20 @@ async function addHabit(name) {
 }
 
 // Private mode: manual (stand down) or automatic around each salah.
+async function currentMeeting() {
+  const now = new Date().toISOString();
+  try {
+    const r = await db(`calendar_events?select=id,summary,end_at,meet_link&all_day=eq.false&busy=eq.true&start_at=lte.${now}&end_at=gt.${now}&order=end_at.desc&limit=1`);
+    if (!r.length) return null;
+    return { id: r[0].id, summary: r[0].summary, until: new Date(r[0].end_at).toLocaleTimeString('en-GB', { timeZone: 'Europe/London', hour: '2-digit', minute: '2-digit' }), meet: !!r[0].meet_link };
+  } catch (e) { return null; }
+}
 async function getPrivate(profile, schedule) {
   const manualUntil = profile.private_until ? new Date(profile.private_until) : null;
   const manual = manualUntil && manualUntil > new Date() ? manualUntil.toISOString() : null;
   const auto = schedule && schedule.privateWindow;
-  return { on: !!(manual || auto), manualUntil: manual, auto: auto || null };
+  const meeting = profile.google_status === 'connected' ? await currentMeeting() : null;
+  return { on: !!(manual || auto || meeting), manualUntil: manual, auto: auto || null, meeting };
 }
 async function setPrivate(on, minutes) {
   const until = on ? new Date(Date.now() + Math.max(5, Math.min(600, +minutes || 60)) * 60e3).toISOString() : '';
@@ -56,7 +65,7 @@ async function lifeState() {
   const profile = await getProfile();
   const schedule = await getSchedule(profile).catch(() => null);
   const [habits, priv] = await Promise.all([getHabits(), getPrivate(profile, schedule)]);
-  return { profile, schedule, habits, private: priv, briefTime: profile.brief_time || '07:30' };
+  return { profile, schedule, habits, private: priv, briefTime: profile.brief_time || '07:30', google: { connected: profile.google_status === 'connected', status: profile.google_status || 'not_connected', email: profile.google_email || null } };
 }
 
 // ---- Web Push ----

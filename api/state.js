@@ -8,7 +8,7 @@ module.exports = async (req, res) => {
   try {
     if (req.method === 'GET') {
       const s = await lifeState();
-      return res.status(200).json({ schedule: s.schedule, habits: s.habits, private: s.private, briefTime: s.briefTime });
+      return res.status(200).json({ schedule: s.schedule, habits: s.habits, private: s.private, briefTime: s.briefTime, google: s.google });
     }
     if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
     const b = await readBody(req);

@@ -16,6 +16,8 @@ setStatus(idleMsg);
 let ws = null, micCtx = null, micStream = null, micNode = null, outCtx = null, analyser = null;
 let nextTime = 0, sources = new Set(), active = false, connecting = false, model = null, mode = 'companion';
 let briefPending = new URLSearchParams(location.search).has('brief');
+let debriefPending = new URLSearchParams(location.search).get('debrief');
+let pendingAction = null;
 let micLevel = 0, outLevel = 0, retries = 0, finishing = null, onboardingState = { configured: false, status: null, plan: null };
 
 // ---------- captions & toast ----------
@@ -134,6 +136,19 @@ async function handleTool(f) {
       try { const loc = await here(); const r = await post('/api/prayers', { action: 'travel', ...loc }); loadLife(); toast('Travelling · local times'); return r.ok ? 'using calculated times for his location' : 'failed'; }
       catch (e) { return 'Location is blocked; could not switch to travel times.'; }
     }
+    if (f.name === 'connect_google') { showGoogleChip(true); return 'The Connect Google button is on his screen; ask him to tap it and sign in with his JSE account.'; }
+    if (f.name === 'get_calendar') { const r = await getJ('/api/google/calendar?range=' + encodeURIComponent(a.range || 'today')); return r.ok ? JSON.stringify(r.events) : (r.error || 'unavailable'); }
+    if (f.name === 'find_free_time') { const r = await post('/api/google/free', a); return r.ok ? JSON.stringify(r.free) : (r.error || 'unavailable'); }
+    if (f.name === 'create_event' || f.name === 'update_event') { pendingAction = { kind: f.name, args: a }; showEventCard(f.name, a); return 'NOT BOOKED YET. A confirmation card is on screen. Do not say it is booked or set up. Read the details back as a question, e.g. "Call with Jay, tomorrow 3 to 3:30 — shall I book it?", then wait for his yes.'; }
+    if (f.name === 'confirm_pending') { if (!pendingAction) return 'Nothing is waiting for confirmation.'; const r = await runPending(); return r; }
+    if (f.name === 'cancel_pending') { pendingAction = null; hideCard(); return 'Cancelled.'; }
+    if (f.name === 'search_email') { const r = await post('/api/google/mail_search', { q: a.query }); return r.ok ? JSON.stringify(r.messages) : (r.error || 'unavailable'); }
+    if (f.name === 'summarise_unread') { const r = await getJ('/api/google/mail_unread'); return r.ok ? JSON.stringify(r.messages) : (r.error || 'unavailable'); }
+    if (f.name === 'read_email') { const r = await post('/api/google/mail_read', { id: a.id }); return r.ok ? JSON.stringify(r) : (r.error || 'unavailable'); }
+    if (f.name === 'draft_email') { const r = await post('/api/google/draft', a); if (r.ok) showDraftCard(r.draft); return r.ok ? 'Draft saved in Gmail and shown on screen. It has NOT been sent.' : (r.error || 'failed'); }
+    if (f.name === 'search_drive') { const r = await post('/api/google/drive_search', { q: a.query }); return r.ok ? JSON.stringify(r.files) : (r.error || 'unavailable'); }
+    if (f.name === 'read_doc') { const r = await post('/api/google/drive_read', { id: a.id }); return r.ok ? JSON.stringify(r) : (r.error || 'unavailable'); }
+    if (f.name === 'save_debrief') { const r = await post('/api/google/debrief_done', { event_id: a.event_id, summary: a.summary }); if (r.ok) toast('Debrief saved'); return r.ok ? 'saved' : 'failed'; }
     if (f.name === 'enable_notifications') { showNotifyChip(true); return 'The button is on his screen now; ask him to tap it.'; }
     if (f.name === 'finish_onboarding') {
       const plan = { headline: a.headline, sections: a.sections || [], pledge: a.pledge };
@@ -151,7 +166,7 @@ function checkFinish() {
 
 // ---------- session ----------
 async function connect(isReconnect) {
-  const q = forceOnboarding ? '?mode=onboarding' : (briefPending && !isReconnect ? '?mode=brief' : '');
+  const q = forceOnboarding ? '?mode=onboarding' : (briefPending && !isReconnect ? '?mode=brief' : (debriefPending && !isReconnect ? '?mode=debrief&event=' + encodeURIComponent(debriefPending) : ''));
   const r = await fetch('/api/token' + q, { method: 'POST', cache: 'no-store' });
   if (r.status === 401) { showLock(); throw new Error('Locked. Unlock with your fingerprint first.'); }
   const j = await r.json().catch(() => ({}));
@@ -196,6 +211,9 @@ async function connect(isReconnect) {
       : '(Cue: Eesah just tapped the orb to start his onboarding. Begin now.)';
     sock.send(JSON.stringify({ realtimeInput: { text: cue } }));
     setBusy(true);
+  } else if (j.debrief) {
+    debriefPending = null; history.replaceState(null, '', '/');
+    sock.send(JSON.stringify({ realtimeInput: { text: '(Cue: Eesah opened the debrief. Begin it now.)' } })); setBusy(true);
   } else if (j.brief) {
     briefPending = false; history.replaceState(null, '', '/');
     sock.send(JSON.stringify({ realtimeInput: { text: '(Cue: Eesah opened his morning brief. Begin it now.)' } })); setBusy(true);
@@ -280,6 +298,7 @@ async function loadOnboarding() {
   else if (st !== 'complete' || forceOnboarding) idleMsg = greeting + " Before anything else, let's set you up properly. Tap the orb to begin.";
   else { $('redo').hidden = false; showNotifyChip(false); }
   if (briefPending && st === 'complete') idleMsg = 'Your morning brief is ready. Tap the orb.';
+  if (debriefPending && st === 'complete') idleMsg = 'Debrief ready. Tap the orb and tell me how it went.';
   if (!active) setStatus(idleMsg);
 }
 $('redo').addEventListener('click', async () => {
@@ -427,7 +446,7 @@ function renderLife() {
   const pv = life.private || {};
   document.body.classList.toggle('private', !!pv.on);
   let txt = '';
-  if (pv.on) txt = pv.manualUntil ? 'Private · standing down' : `Private · ${cap(pv.auto.prayer)} until ${pv.auto.until}`;
+  if (pv.on) txt = pv.manualUntil ? 'Private · standing down' : pv.auto ? `Private · ${cap(pv.auto.prayer)} until ${pv.auto.until}` : `In a meeting · until ${pv.meeting.until}`;
   else if (n) {
     const target = n.iqamah || n.adhan, mins = minutesUntil(target, n.day);
     txt = `${n.prayer === 'dhuhr' && sc.today.jumuah && n.day === 'today' ? "Jumu'ah" : cap(n.prayer)} ${n.iqamah ? "jama'ah " : ''}${target} · ${fmtIn(mins)}`;
@@ -439,7 +458,8 @@ function renderLife() {
     const st = h.today || '', done = ['done', 'prayed', 'jamaah', 'qada'].includes(st);
     return `<button class="dot ${done ? 'done' : ''} ${st === 'missed' ? 'missed' : ''} ${st === 'jamaah' ? 'jamaah' : ''}" data-p="${p}" aria-label="${cap(p)}: ${st || 'not logged'}"><i></i><span>${cap(p)[0]}</span></button>`;
   }).join('');
-  if (!active) setStatus(pv.on && !pv.manualUntil ? `Salah time. I'll be here after ${cap(pv.auto.prayer)}.` : idleMsg);
+  if (!active) setStatus(pv.on && pv.auto && !pv.manualUntil ? `Salah time. I'll be here after ${cap(pv.auto.prayer)}.` : pv.on && pv.meeting && !pv.manualUntil ? `You're in "${pv.meeting.summary}". I'll keep quiet.` : idleMsg);
+  showGoogleChip(false);
 }
 function minutesUntil(hm, day) {
   const [h, m] = hm.split(':').map(Number);
@@ -493,4 +513,43 @@ $('notify').addEventListener('click', async () => {
   $('notify').hidden = true;
   if (p === 'granted' && await ensurePush()) { await post('/api/push', { action: 'test' }); toast('Reminders on'); }
   else toast('Notifications are blocked. You can allow them in phone settings.');
+});
+
+
+// ================= Google Workspace =================
+function showGoogleChip(force) {
+  const gg = (life && life.google) || {};
+  const done = onboardingState.status === 'complete';
+  const chip = $('gchip');
+  if (gg.connected) { chip.hidden = true; $('glink').hidden = !done; $('glink').textContent = 'Google ✓'; return; }
+  $('glink').hidden = true;
+  if (gg.status === 'expired') { chip.textContent = 'Reconnect Google'; chip.hidden = false; return; }
+  if (force || (done && gg.status !== 'disconnected')) { chip.textContent = 'Connect Google (JSE)'; chip.hidden = false; }
+}
+$('gchip').addEventListener('click', () => { if (active) stop(); location.href = '/api/google/start'; });
+$('glink').addEventListener('click', async () => {
+  if (!confirm(`Disconnect Google (${(life.google && life.google.email) || 'JSE'})? Freya will stop seeing your calendar, email and Drive.`)) return;
+  const r = await post('/api/google/disconnect', {}); if (r.ok) { toast('Google disconnected'); loadLife(); }
+});
+function card(html) { $('card-body').innerHTML = html; $('card').hidden = false; }
+function hideCard() { $('card').hidden = true; }
+const fmtWhen = (s, e) => { try { const d = new Date(s); return d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }) + ' · ' + s.slice(11, 16) + (e ? '–' + e.slice(11, 16) : ''); } catch (x) { return s; } };
+function showEventCard(kind, a) {
+  card(`<p class="kicker">${kind === 'create_event' ? 'New event' : 'Change event'} · needs your OK</p><h3>${esc(a.title || '(same title)')}</h3><p>${a.start ? esc(fmtWhen(a.start, a.end)) : ''}${a.location ? '<br>' + esc(a.location) : ''}${a.add_meet ? '<br>With Google Meet' : ''}${a.attendees && a.attendees.length ? '<br>Guests: ' + esc(a.attendees.join(', ')) + ' (no invites sent)' : ''}</p><div class="row"><button class="ghost" data-c="cancel">Cancel</button><button data-c="ok">Confirm</button></div>`);
+}
+function showDraftCard(d) {
+  card(`<p class="kicker">Draft saved · not sent</p><h3>${esc(d.subject || '(no subject)')}</h3><p class="hint">To: ${esc(d.to || '—')}</p><pre>${esc(d.body || '')}</pre><div class="row"><button class="ghost" data-c="close">Close</button><a class="btn" href="${d.link}" target="_blank" rel="noopener">Open Gmail drafts</a></div>`);
+}
+async function runPending() {
+  const pa = pendingAction; pendingAction = null; if (!pa) return 'Nothing pending.';
+  const r = await post('/api/google/' + pa.kind, pa.args);
+  if (r.ok) { hideCard(); toast(pa.kind === 'create_event' ? 'Added to calendar' : 'Event updated'); return 'Done: ' + JSON.stringify(r.event); }
+  card(`<p class="err">${esc(r.error || 'Calendar update failed.')}</p><div class="row"><button class="ghost" data-c="close">Close</button></div>`);
+  return 'Failed: ' + (r.error || 'unknown');
+}
+$('card').addEventListener('click', async e => {
+  const c = e.target.dataset && e.target.dataset.c; if (!c) return;
+  if (c === 'close') return hideCard();
+  if (c === 'cancel') { pendingAction = null; hideCard(); if (ws && ws.readyState === 1) ws.send(JSON.stringify({ realtimeInput: { text: '(Cue: he tapped Cancel on the card. Nothing was written.)' } })); return; }
+  if (c === 'ok') { const res = await runPending(); if (ws && ws.readyState === 1) ws.send(JSON.stringify({ realtimeInput: { text: '(Cue: he tapped Confirm. Result: ' + res + ' Acknowledge in a few words.)' } })); }
 });

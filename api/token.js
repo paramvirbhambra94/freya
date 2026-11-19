@@ -1,6 +1,7 @@
 const { db, configured, getProfile, setProfile } = require('./_db');
 const { requireAuth } = require('./_auth');
 const { lifeState } = require('./_life');
+const G = require('./_google');
 // Mints a short-lived, single-use Gemini Live token. The API key never leaves the server.
 const MODEL = 'models/gemini-3.8-live';
 const VOICE = 'Sulafat';
@@ -25,7 +26,7 @@ HOW YOU HELP: push him to grow. Help him think, decide and act; never do his thi
 
 MEMORY: When you learn something durable about Eesah (a fact, preference, goal, commitment, routine, person in his life, worry), quietly call save_memory with a short, specific note. Never announce that you are saving. Never invent facts about his life; use only what he has told you or what is listed below.
 
-LIMITS FOR NOW: you can see his prayer times, habits and streaks, and you can log prayers, set private mode and his brief time, and send him phone reminders. You do not yet have access to his calendar, email or bank. If he asks for something you can't do yet, say so in one line and offer what you can do. Be respectful of his faith.`;
+LIMITS FOR NOW: you can see his prayer times, habits and streaks, and you can log prayers, set private mode and his brief time, and send him phone reminders. You do not yet have access to his bank. If he asks for something you can't do yet, say so in one line and offer what you can do. Be respectful of his faith.`;
   if (ctx.profile && Object.keys(ctx.profile).length) {
     p += '\n\nWHAT YOU ALREADY KNOW ABOUT EESAH (pre-loaded; treat as true unless he corrects it):\n' +
       Object.entries(ctx.profile).filter(([k]) => !['onboarding_status', 'onboarding_completed_at', 'life_plan'].includes(k)).map(([k, v]) => `- ${k}: ${v}`).join('\n');
@@ -36,7 +37,8 @@ LIMITS FOR NOW: you can see his prayer times, habits and streaks, and you can lo
   if (ctx.life) p += lifeBlock(ctx.life, ctx);
   if (ctx.brief && mode !== 'onboarding') p += `
 
-HE JUST OPENED HIS MORNING BRIEF. Speak first, now. Greet him in one line, then: today's prayers with jama'ah times (lead with the next one), how his prayers and habits went yesterday and any streaks worth naming, then help him set two or three priorities for today (ask for his top one if you don't know it), and one habit nudge. Under a minute. End with one short question.`;
+HE JUST OPENED HIS MORNING BRIEF. Speak first, now. Greet him in one line, then: today's prayers with jama'ah times (lead with the next one), today's calendar (what's fixed, and any clashes with jama'ah times), any important unread email worth his attention (one line each, max three), how his prayers and habits went yesterday and any streaks worth naming, then help him set two or three priorities for today (ask for his top one if you don't know it), and one habit nudge. Under ninety seconds. End with one short question.`;
+  if (ctx.debrief) p += `\n\nHE OPENED A MEETING DEBRIEF for "${ctx.debrief.summary}" (${ctx.debrief.when}). Speak first: one line to open, then a quick debrief, one question at a time: how it went, what was decided, what he owes and by when, anything that worried him. ${ctx.debrief.notes ? 'You already have the meeting notes below; confirm the key points with him rather than asking from scratch. Notes: ' + ctx.debrief.notes : ''} Keep it to about two minutes. When done, call save_debrief with event_id "${ctx.debrief.id}" and a tight summary (decisions, his follow-ups with dates).`;
   if (mode === 'onboarding') {
     p += `
 
@@ -56,9 +58,17 @@ function lifeBlock(L, ctx) {
     if (sc.next) lines.push(`Next: ${sc.next.prayer} ${sc.next.day}${sc.next.iqamah ? `, jama'ah ${sc.next.iqamah}` : ` at ${sc.next.adhan}`} (in ${sc.next.inMin} min).`);
     if (sc.travelling) lines.push('He is travelling, so times are calculated for where he is.');
   }
-  if (L.private.on) lines.push(`PRIVATE MODE IS ON (${L.private.manualUntil ? 'he asked you to stand down' : 'salah time: ' + L.private.auto.prayer + ' until ' + L.private.auto.until}). Keep any reply to one short line; if it's salah time, gently send him to pray.`);
+  if (L.private.on) lines.push(`PRIVATE MODE IS ON (${L.private.manualUntil ? 'he asked you to stand down' : L.private.auto ? 'salah time: ' + L.private.auto.prayer + ' until ' + L.private.auto.until : 'he is in a meeting: "' + L.private.meeting.summary + '" until ' + L.private.meeting.until}). Keep any reply to one short line; if it's salah time, gently send him to pray; if he's in a meeting, be brief and discreet.`);
   if (L.habits.length) lines.push('Habits (today / current streak in days / last 7 days): ' + L.habits.map(h => `${h.name}: ${h.today || 'not logged'} / ${h.streak} / ${h.last7}of7`).join('; ') + '.');
   lines.push(`Morning brief time: ${L.briefTime}. Notifications on his phone: ${ctx.pushOn ? 'on' : 'off'}.`);
+  const gg = L.google || {};
+  if (gg.connected) {
+    lines.push(`Google Workspace connected (${gg.email}).` + (ctx.calendar && ctx.calendar.length ? ' Calendar today: ' + ctx.calendar.map(e => `${e.when.replace(/^\w+ \d+ \w+ /, '')} ${e.title}${e.meet ? ' (Meet)' : ''}`).join('; ') + '.' : ' Nothing on his calendar today.'));
+    if (ctx.unread && ctx.unread.length) lines.push('Important unread email: ' + ctx.unread.map(m => `[${m.id}] ${String(m.from || '').replace(/<.*>/, '').trim()}: ${m.subject}`).join('; ') + '.');
+    if (ctx.pendingDebriefs && ctx.pendingDebriefs.length) lines.push('Meetings that ended without a debrief yet: ' + ctx.pendingDebriefs.map(e => `"${e.summary}" (event_id ${e.id})`).join('; ') + '. If it fits naturally, offer a quick debrief once; never push it.');
+    if (ctx.recentNotes && ctx.recentNotes.length) lines.push('Recent meeting notes: ' + ctx.recentNotes.map(n => n.summary).join(' | ').slice(0, 3000));
+  } else if (gg.status === 'expired') lines.push('Google access has EXPIRED. If he asks for calendar or email, tell him to tap Reconnect Google on the home screen.');
+  else lines.push("Google Workspace is not connected yet. If he asks about calendar/email/Drive, or at a natural moment, offer to connect it and call connect_google.");
   return `
 
 TODAY'S LIFE ENGINE (live data, UK time):
@@ -71,7 +81,14 @@ DAILY LIFE RULES:
 - Moving or travelling: if he has moved or wants a different mosque, call find_mosques (near_me=true, or a query with the area or mosque name), read back up to three options briefly, then call set_mosque with the one he picks. If he's travelling, call set_travelling with on=true, and on=false when he's home.
 - If he tells you when he wants his morning brief, or you learn when he's usually up after Fajr, call set_brief_time.
 - If notifications are off, at a natural moment (once, not during onboarding questions) offer to switch them on so you can remind him about jama'ah and his brief; if he agrees, call enable_notifications.
-- Use get_prayer_times for anything beyond today (e.g. tomorrow's Fajr).`;
+- Use get_prayer_times for anything beyond today (e.g. tomorrow's Fajr).
+
+GOOGLE WORKSPACE RULES (his JSE work account):
+- Calendar: get_calendar and find_free_time to answer questions. JSE calls only work from 12pm. Protect jama'ah times when suggesting slots. To add or change an event, call create_event or update_event: this only shows a confirmation card. Nothing is booked yet at that point, so never say "booked", "set up" or "done" — read the details back as a question ("…shall I book it?") and wait. Only call confirm_pending after he clearly says yes or go to THAT card; if he hesitates or changes anything, call cancel_pending and start again.
+- Email: search_email, summarise_unread and read_email to read. draft_email only creates a Gmail draft and shows it on screen; you can NEVER send email. Tell him it's in his drafts to review and send himself.
+- Drive: search_drive and read_doc to find and read documents. Quote sparingly; summarise.
+- Meetings: while he's in a meeting you stay quiet. After meetings, you may offer a short debrief (save it with save_debrief).
+- Never read out private email content during private mode or a meeting.`;
 }
 
 const OBJ = (properties, required) => ({ type: 'OBJECT', properties, required });
@@ -91,6 +108,20 @@ const LIFE_TOOLS = [
   { name: 'find_mosques', description: 'Find Mawaqit mosques near him (uses phone location) or by name/area.', parameters: OBJ({ near_me: BOOL('Use his current location'), query: STR('Mosque name, town or postcode words'), country: STR('ISO country code, default GB') }, []) },
   { name: 'set_mosque', description: 'Switch his home mosque for prayer times.', parameters: OBJ({ slug: STR('Mosque slug from find_mosques') }, ['slug']) },
   { name: 'set_travelling', description: 'Travelling: use calculated times for his current location (on) or go back to his home mosque (off).', parameters: OBJ({ on: BOOL('true when travelling') }, ['on']) },
+  { name: 'connect_google', description: 'Show him the Connect Google button (JSE Google Workspace).', parameters: OBJ({}, []) },
+  { name: 'get_calendar', description: 'Read his calendar.', parameters: OBJ({ range: STR('today, tomorrow, week, or a date YYYY-MM-DD') }, []) },
+  { name: 'find_free_time', description: 'Find free slots on a day (UK time).', parameters: OBJ({ date: STR('YYYY-MM-DD, default today'), duration: { type: 'INTEGER', description: 'Minutes, default 30' }, from: STR('HH:MM earliest, default 09:00'), to: STR('HH:MM latest, default 18:00') }, []) },
+  { name: 'create_event', description: 'Propose a new calendar event. Shows a confirmation card; nothing is written until confirm_pending.', parameters: OBJ({ title: STR('Event title'), start: STR('YYYY-MM-DDTHH:MM UK time'), end: STR('YYYY-MM-DDTHH:MM UK time'), attendees: { type: 'ARRAY', items: { type: 'STRING' }, description: 'Email addresses (optional; invites are not sent automatically)' }, location: STR('Optional'), add_meet: BOOL('Add a Google Meet link') }, ['title', 'start', 'end']) },
+  { name: 'update_event', description: 'Propose a change to an existing event (from get_calendar). Shows a confirmation card.', parameters: OBJ({ event_id: STR('Event id'), title: STR('New title'), start: STR('YYYY-MM-DDTHH:MM'), end: STR('YYYY-MM-DDTHH:MM'), location: STR('New location') }, ['event_id']) },
+  { name: 'confirm_pending', description: 'Carry out the calendar change on the confirmation card. Only after he clearly says yes/go to it.', parameters: OBJ({}, []) },
+  { name: 'cancel_pending', description: 'Discard the confirmation card.', parameters: OBJ({}, []) },
+  { name: 'search_email', description: 'Search his Gmail (Gmail search syntax works, e.g. from:jay newer_than:7d).', parameters: OBJ({ query: STR('Search query') }, ['query']) },
+  { name: 'summarise_unread', description: 'Get his important unread email from the last two days.', parameters: OBJ({}, []) },
+  { name: 'read_email', description: 'Read one email by id.', parameters: OBJ({ id: STR('Message id') }, ['id']) },
+  { name: 'draft_email', description: 'Create a Gmail DRAFT (never sends). Shows it on screen.', parameters: OBJ({ to: STR('Recipient email(s)'), subject: STR('Subject'), body: STR('Plain-text body, in his voice, signed Eesah'), reply_to_id: STR('Message id if this is a reply') }, ['body']) },
+  { name: 'search_drive', description: 'Search his Google Drive.', parameters: OBJ({ query: STR('Words to search for') }, ['query']) },
+  { name: 'read_doc', description: 'Read a Drive file (Docs, Sheets, Slides, text) by id.', parameters: OBJ({ id: STR('File id') }, ['id']) },
+  { name: 'save_debrief', description: 'Save a meeting debrief to memory and mark it done.', parameters: OBJ({ event_id: STR('Event id'), summary: STR('Decisions and his follow-ups with dates') }, ['summary']) },
   { name: 'enable_notifications', description: 'Show him the button to switch on phone notifications.', parameters: OBJ({ reason: STR('Short reason') }, []) }
 ];
 
@@ -103,7 +134,17 @@ async function loadContext() {
       db('onboarding_answers?select=topic,question,answer&order=created_at.asc&limit=200')
     ]);
     const [life, subs] = await Promise.all([lifeState().catch(() => null), db('push_subscriptions?select=endpoint').catch(() => [])]);
-    return { memory: true, profile, memories, answers, life, pushOn: subs.length > 0 };
+    const ctx = { memory: true, profile, memories, answers, life, pushOn: subs.length > 0 };
+    if (life && life.google && life.google.connected) {
+      const now = new Date().toISOString();
+      const [cal, deb, notes] = await Promise.all([
+        G.getCalendar('today').catch(() => null),
+        db(`calendar_events?select=id,summary&debrief_status=eq.offered&end_at=gte.${new Date(Date.now() - 12 * 36e5).toISOString()}&end_at=lte.${now}`).catch(() => []),
+        db('meeting_notes?select=summary&order=created_at.desc&limit=3').catch(() => [])
+      ]);
+      ctx.calendar = cal; ctx.pendingDebriefs = deb; ctx.recentNotes = notes;
+    }
+    return ctx;
   } catch (e) { return { memory: false }; }
 }
 
@@ -119,6 +160,13 @@ module.exports = async (req, res) => {
   ctx.mode = ctx.memory && (wanted === 'onboarding' || (wanted !== 'companion' && (status === 'not_started' || status === 'in_progress'))) ? 'onboarding' : 'companion';
   if (ctx.mode === 'onboarding' && status !== 'in_progress') { try { await setProfile('onboarding_status', 'in_progress'); } catch (e) {} }
   ctx.brief = wanted === 'brief';
+  if (ctx.memory && ctx.life && ctx.life.google && ctx.life.google.connected) {
+    if (ctx.brief) ctx.unread = await G.importantUnread().catch(() => null);
+    if (wanted === 'debrief' && req.query.event) {
+      const ev = (await db(`calendar_events?select=id,summary,start_at,end_at&id=eq.${encodeURIComponent(req.query.event)}`).catch(() => []))[0];
+      if (ev) { const n = (await db(`meeting_notes?select=summary&event_id=eq.${encodeURIComponent(ev.id)}`).catch(() => []))[0]; ctx.debrief = { id: ev.id, summary: ev.summary, when: G.ukDay(ev.start_at) + ' ' + G.ukHM(ev.start_at), notes: n ? n.summary : null }; }
+    }
+  }
   const decls = ctx.memory ? [TOOL_SAVE_MEMORY].concat(LIFE_TOOLS, ctx.mode === 'onboarding' ? [TOOL_SAVE_ANSWER, TOOL_FINISH] : []) : [];
   const now = Date.now();
   try {
@@ -146,7 +194,7 @@ module.exports = async (req, res) => {
     });
     const j = await r.json();
     if (!r.ok || !j.name) return res.status(502).json({ error: 'Could not get a voice token' });
-    return res.status(200).json({ token: j.name, model: MODEL, mode: ctx.mode, brief: !!ctx.brief && ctx.mode !== 'onboarding', memory: !!ctx.memory });
+    return res.status(200).json({ token: j.name, model: MODEL, mode: ctx.mode, brief: !!ctx.brief && ctx.mode !== 'onboarding', debrief: ctx.mode !== 'onboarding' && ctx.debrief ? ctx.debrief.summary : null, memory: !!ctx.memory });
   } catch (e) {
     return res.status(502).json({ error: 'Voice service unreachable' });
   }
