@@ -1,7 +1,7 @@
 const { db, configured, getProfile, setProfile } = require('./_db');
 // Mints a short-lived, single-use Gemini Live token. The API key never leaves the server.
 const MODEL = 'models/gemini-3.8-live';
-const VOICE = 'Achernar';
+const VOICE = 'Sulafat';
 
 function persona(ctx = {}) {
   const now = new Date().toLocaleString('en-GB', { timeZone: 'Europe/London', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' });
