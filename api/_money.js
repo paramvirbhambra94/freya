@@ -84,8 +84,9 @@ async function sync({ force = false } = {}) {
   if (!configured()) return { skipped: 'no key' };
   const prof = await getProfile();
   const last = prof.money_last_sync ? new Date(prof.money_last_sync) : null;
-  if (!force && last && Date.now() - last < SYNC_EVERY_H * 36e5) return { skipped: 'fresh' };
-  if (force && last && Date.now() - last < 15 * 6e4) return { skipped: 'synced under 15 min ago' };
+  const backfill = prof.money_ts_backfill !== '1';
+  if (!force && !backfill && last && Date.now() - last < SYNC_EVERY_H * 36e5) return { skipped: 'fresh' };
+  if (force && !backfill && last && Date.now() - last < 15 * 6e4) return { skipped: 'synced under 15 min ago' };
   await setProfile('money_last_sync', new Date().toISOString()); // claim early so overlapping cron runs don't double-hit Lunch Flow
   const { accounts = [] } = await lf('/accounts?include_raw=true');
   const known = Object.fromEntries((await db('bank_accounts?select=id,connection_id,connection_since,first_seen')).map(a => [a.id, a]));
@@ -116,14 +117,14 @@ async function sync({ force = false } = {}) {
   let txs = [];
   for (const a of accounts) {
     const latest = (await db(`bank_transactions?select=date&account_id=eq.${a.id}&order=date.desc&limit=1`))[0];
-    const from = latest ? day(latest.date, -10) : day(today, -730);
+    const from = latest && !backfill ? day(latest.date, -10) : day(today, -730);
     let j; try { j = await lf(`/accounts/${a.id}/transactions?include_raw=true&from=${from}`); } catch (e) { out.tx_error = true; continue; }
     for (const t of j.transactions || []) {
       if (t.isPending) continue;
       const raw = (t.raw && Object.values(t.raw)[0]) || {};
       const code = raw.proprietaryBankTransactionCode || null;
       txs.push({ id: String(t.id), account_id: a.id, date: t.date, amount: +t.amount, currency: t.currency || 'GBP', merchant: (t.merchant || '').slice(0, 120), description: (t.description || '').slice(0, 160),
-        code, mcc: raw.merchantCategoryCode || null, is_transfer: /pot/.test(code || '') });
+        code, mcc: raw.merchantCategoryCode || null, ts: raw.bookingDateTime || raw.valueDateTime || null, is_transfer: /pot/.test(code || '') });
     }
   }
   // Transfers between his own connected accounts: equal and opposite amounts within 2 days.
@@ -143,6 +144,7 @@ async function sync({ force = false } = {}) {
   for (const t of txs) if (!t.category) { const c = learned[mkey(t)]; t.category = c || 'Other'; t.cat_source = c ? 'ai' : 'none'; }
   for (let i = 0; i < txs.length; i += 500) await db('bank_transactions?on_conflict=id', { method: 'POST', prefer: 'resolution=merge-duplicates', body: txs.slice(i, i + 500) });
   out.new_tx = txs.length;
+  if (backfill && !out.tx_error) await setProfile('money_ts_backfill', '1');
   await setProfile('money_last_sync', new Date().toISOString());
   await setProfile('money_last_result', JSON.stringify(out));
   return out;
@@ -194,12 +196,13 @@ async function load(months = 24) {
   const today = london().date;
   const [accounts, txs, prof] = await Promise.all([
     db('bank_accounts?select=id,name,institution,status,account_type,balance,currency,balance_at,connection_id,connection_since&order=balance.desc.nullslast'),
-    all(`bank_transactions?select=id,account_id,date,amount,merchant,description,code,category,is_transfer&date=gte.${day(today, -31 * months)}&order=date.asc`),
+    all(`bank_transactions?select=id,account_id,date,ts,amount,merchant,description,code,category,is_transfer&date=gte.${day(today, -31 * months)}&order=date.asc`),
     getProfile()
   ]);
   for (const t of txs) t.amount = +t.amount;
   for (const a of accounts) a.balance = a.balance == null ? null : +a.balance;
-  return { accounts, txs, prof, today };
+  let model = null; try { const r = await db('money_patterns?select=data&key=eq.model'); model = r[0] ? r[0].data : null; } catch (e) {}
+  return { accounts, txs, prof, today, model };
 }
 
 function analyse({ accounts, txs, prof, today }) {
@@ -321,10 +324,30 @@ function simulate(d, sc = {}, base) {
   const goalAmt = sc.goal != null ? +sc.goal : (a.goal && a.goal.amount ? +a.goal.amount : null);
   const nb = blocks.length, recentFrom = Math.max(0, nb - 6), rand = rng(1234567 + months * 7 + Math.round(purchase) + Math.round(extraMonthly));
   const today = +d.today.slice(8);
+  let P = null; try { P = require('./_patterns').dayEngine(d, sc); } catch (e) { P = null; }
+  const wP = P ? P.weight : 0, H = Math.round(months * 30.44); let runsP = 0;
   const ends = new Float64Array(runs), mins = new Float64Array(runs); let never0 = 0, goalHit = 0;
   const monthEnds = [...Array(months)].map(() => new Float64Array(runs));
   for (let r = 0; r < runs; r++) {
     let bal = start, mn = start;
+    if (P && rand() < wP) { // learned engine: day-of-week x payday-phase pools, payday cycle, drift and bias
+      runsP++; let since = P.sinceLastPayday, dow = P.startDow;
+      const noise = 0.9 + rand() * 0.2, bias = P.bias, drift = P.drift;
+      for (let i = 1; i <= H; i++) {
+        dow = (dow + 1) % 7; since++;
+        if (P.gap && since >= P.gap) { bal += P.paydays[Math.floor(rand() * P.paydays.length)] * P.incMul; since = 0; }
+        const pool = P.pool(dow, since), ix = pool[Math.floor(rand() * pool.length)];
+        const grow = drift === 1 ? 1 : 1 + (drift - 1) * Math.min(1, i / H);
+        bal += P.inc[ix] - P.sp[ix] * noise * bias * grow;
+        if (purchase && i === pMonth * 30 + 1) bal -= purchase;
+        if (extraMonthly && i % 15 === 1) bal += extraMonthly / 2;
+        if (bal < mn) mn = bal;
+        if (i % 30 === 0 && i / 30 <= months) monthEnds[i / 30 - 1][r] = bal;
+      }
+      for (let k = Math.floor(H / 30); k < months; k++) monthEnds[k][r] = bal;
+      ends[r] = bal; mins[r] = mn; if (mn >= 0) never0++; if (goalAmt != null && bal - start >= goalAmt) goalHit++;
+      continue;
+    }
     for (let k = 0; k < months; k++) {
       const b = blocks[rand() < 0.7 ? recentFrom + Math.floor(rand() * (nb - recentFrom)) : Math.floor(rand() * nb)];
       const noise = 0.9 + rand() * 0.2; // ±10% month-to-month spending wobble
@@ -339,6 +362,7 @@ function simulate(d, sc = {}, base) {
   const q = (arr, p) => { const s = Float64Array.from(arr).sort(); return r2(s[Math.min(s.length - 1, Math.floor(p * s.length))]); };
   const res = {
     months, runs, start_balance: r2(start), history_months_used: nb,
+    engine: P ? { learned_share: Math.round(runsP / runs * 100), weight: Math.round(wP * 100) / 100, bias: P.bias, drift: P.drift, payday_cycle_days: P.gap || null } : { learned_share: 0 },
     p_never_below_zero: Math.round(never0 / runs * 1000) / 10,
     end_balance: { p10: q(ends, 0.1), median: q(ends, 0.5), p90: q(ends, 0.9) },
     expected_savings: r2(q(ends, 0.5) - start),
@@ -365,4 +389,4 @@ function bestPath(d, months = 6) {
     combined: combo && !combo.error ? { p_never_below_zero: combo.p_never_below_zero, expected_savings: combo.expected_savings, gain: combo.vs_baseline } : null };
 }
 
-module.exports = { configured, sync, load, analyse, summary, spending, simulate, bestPath, recurring, ruleCat, mkey, gbp, CATS, day, daysBetween };
+module.exports = { NON_SPEND, DISCRETIONARY, median, all, configured, sync, load, analyse, summary, spending, simulate, bestPath, recurring, ruleCat, mkey, gbp, CATS, day, daysBetween };

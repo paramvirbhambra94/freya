@@ -154,6 +154,8 @@ async function handleTool(f) {
     if (f.name === 'list_subscriptions') { const r = await getJ('/api/money/subscriptions'); return r.ok ? JSON.stringify(r) : (r.error || 'unavailable'); }
     if (f.name === 'simulate') { const r = await post('/api/money/simulate', a); if (r.ok) toast(`Ran ${(r.runs || 10000).toLocaleString('en-GB')} futures`); return r.ok ? JSON.stringify(r) : (r.error || 'unavailable'); }
     if (f.name === 'set_savings_goal') { const r = await post('/api/money/goal', a); if (r.ok) toast('Savings goal set'); return r.ok ? JSON.stringify(r) : (r.error || 'failed'); }
+    if (f.name === 'explain_patterns') { const r = await getJ('/api/money/patterns'); return r.ok ? JSON.stringify(r) : (r.error || 'unavailable'); }
+    if (f.name === 'note_pattern') { const r = await post('/api/money/intro', { pattern_id: a.pattern_id, status: a.status }); return r.ok ? 'noted' : 'not saved'; }
     if (f.name === 'show_money') { openMoney(); return 'The money view is on his screen.'; }
     if (f.name === 'enable_notifications') { showNotifyChip(true); return 'The button is on his screen now; ask him to tap it.'; }
     if (f.name === 'finish_onboarding') {
@@ -581,6 +583,7 @@ async function openMoney() {
       ${m.by_category.slice(0, 9).map(c => `<div class="mcat"><span>${esc(c.category)}</span><div class="mbar"><i style="width:${(c.spent / max * 100).toFixed(1)}%"></i>${c.usual ? `<b style="left:${Math.min(99, c.usual / max * 100).toFixed(1)}%"></b>` : ''}</div><span>${gb(c.spent)}</span></div>`).join('') || '<p class="hint">No spending yet this month.</p>'}</div>
     ${r.upcoming && r.upcoming.length ? `<div><h3>Due soon</h3><div class="mlist">${r.upcoming.slice(0, 6).map(u => `<div><span>${esc(u.name)} · ${esc(new Date(u.due + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }))}</span><span>${gb(u.amount)}</span></div>`).join('')}</div></div>` : ''}
     ${(r.insights || []).length > 1 ? `<div><h3>Also</h3><div class="mlist">${r.insights.slice(1, 5).map(i => `<div><span>${esc(i.text)}</span></div>`).join('')}</div></div>` : ''}
+    <div><h3>Patterns</h3><div class="mlist">${(r.patterns || []).length ? r.patterns.slice(0, 4).map(t => `<div><span>${esc(t)}</span></div>`).join('') : '<div><span>Still getting to know how you spend. I\'ll share what I notice as we go.</span></div>'}</div></div>
     ${r.goal ? `<div><h3>Goal</h3><div class="mlist"><div><span>${esc(r.goal.label)}${r.goal.by ? ' · by ' + esc(r.goal.by) : ''}</span><span>${r.goal.amount ? gb(r.goal.amount) : gb(r.goal.monthly) + '/mo'}</span></div></div></div>` : ''}
     <p class="msub">Ask Freya "what if…" to run 10,000 futures. Read-only: she can't move money.</p>`;
 }

@@ -2,6 +2,7 @@
 const { readBody, setProfile, configured } = require('../_db');
 const { requireAuth } = require('../_auth');
 const M = require('../_money');
+const PL = require('../_patterns');
 
 module.exports = async (req, res) => {
   if (!(await requireAuth(req, res))) return;
@@ -12,7 +13,15 @@ module.exports = async (req, res) => {
     if (action === 'sync') { if (!M.configured()) return res.status(503).json({ error: 'Bank link is not set up yet.' }); return res.status(200).json(await M.sync({ force: true })); }
     const d = await M.load();
     if (!d.accounts.length) return res.status(200).json({ connected: M.configured(), empty: true, error: M.configured() ? 'No bank data yet. First sync runs within a few minutes.' : 'Bank link is not set up yet.' });
-    if (action === 'summary') { const a = M.analyse(d); delete a.months; return res.status(200).json({ connected: M.configured(), ...a }); }
+    if (action === 'summary') { const a = M.analyse(d); delete a.months; const v = await PL.view(d.prof).catch(() => null); return res.status(200).json({ connected: M.configured(), ...a, patterns: v ? v.known.map(k => k.say) : [] }); }
+    if (action === 'patterns') {
+      // Only what she's allowed to share: patterns already discussed, plus at most one new one once she knows him.
+      if (d.prof.onboarding_status !== 'complete') return res.status(200).json({ known: [], candidate: null, note: "Still getting to know him; onboarding isn't finished." });
+      const v = await PL.view(d.prof), dr = await PL.driftCheck(d).catch(() => null);
+      return res.status(200).json({ ...v, path: dr ? { drifting: dr.drifting, text: dr.text || null } : null, note: v.candidate ? 'Raise the candidate as a question, then call note_pattern.' : v.known.length ? 'Share only the known ones.' : "Nothing to share yet: say you're still learning him and ask what he thinks." });
+    }
+    if (action === 'intro') { if (req.method !== 'POST' || !b.pattern_id || !['raised', 'confirmed', 'dismissed'].includes(b.status)) return res.status(400).json({ error: 'bad request' }); await PL.setIntro(String(b.pattern_id).slice(0, 120), b.status); return res.status(200).json({ ok: true }); }
+    if (action === 'learn') { if (req.method !== 'POST') return res.status(405).json({ error: 'POST' }); const r = await PL.weekly({ force: true }); return res.status(200).json({ ok: true, patterns: r.patterns, accuracy: r.model && r.model.accuracy }); }
     if (action === 'balances') { const a = M.analyse(d); return res.status(200).json({ as_of: a.as_of, ...a.balances, upcoming_bills: a.upcoming, renewals: a.renewals }); }
     if (action === 'spending') return res.status(200).json(M.spending(d, b.period, b.category));
     if (action === 'subscriptions') { const a = M.analyse(d); return res.status(200).json({ recurring: a.recurring.filter(r => r.active || b.all), monthly_total: Math.round(a.recurring.filter(r => r.active && r.type !== 'regular').reduce((s, r) => s + r.monthly, 0) * 100) / 100 }); }

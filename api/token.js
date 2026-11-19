@@ -3,6 +3,7 @@ const { requireAuth } = require('./_auth');
 const { lifeState } = require('./_life');
 const G = require('./_google');
 const M = require('./_money');
+const PL = require('./_patterns');
 // Mints a short-lived, single-use Gemini Live token. The API key never leaves the server.
 const MODEL = 'models/gemini-3.8-live';
 const VOICE = 'Sulafat';
@@ -30,7 +31,7 @@ MEMORY: When you learn something durable about Eesah (a fact, preference, goal, 
 LIMITS FOR NOW: you can see his prayer times, habits and streaks, and you can log prayers, set private mode and his brief time, and send him phone reminders. You can see his bank accounts read-only (balances, spending, bills, simulations); you can never move money or make payments. If he asks for something you can't do yet, say so in one line and offer what you can do. Be respectful of his faith.`;
   if (ctx.profile && Object.keys(ctx.profile).length) {
     p += '\n\nWHAT YOU ALREADY KNOW ABOUT EESAH (pre-loaded; treat as true unless he corrects it):\n' +
-      Object.entries(ctx.profile).filter(([k]) => !['onboarding_status', 'onboarding_completed_at', 'life_plan'].includes(k)).map(([k, v]) => `- ${k}: ${v}`).join('\n');
+      Object.entries(ctx.profile).filter(([k]) => !['onboarding_status', 'onboarding_completed_at', 'life_plan', 'companion_days', 'last_companion_day', 'pattern_last_intro', 'private_until'].includes(k) && !/^(money_|google_|mosque_cache)/.test(k)).map(([k, v]) => `- ${k}: ${v}`).join('\n');
     if (ctx.profile.life_plan) p += '\n\nHIS LIFE PLAN FROM ONBOARDING (hold him to it, gently but firmly):\n' + ctx.profile.life_plan.slice(0, 6000);
   }
   if (ctx.answers && ctx.answers.length) p += '\n\nWHAT HE TOLD YOU DURING ONBOARDING:\n' + ctx.answers.map(a => `- [${a.topic}] ${a.question ? a.question + ' -> ' : ''}${a.answer}`).join('\n').slice(0, 12000);
@@ -38,7 +39,7 @@ LIMITS FOR NOW: you can see his prayer times, habits and streaks, and you can lo
   if (ctx.life) p += lifeBlock(ctx.life, ctx);
   if (ctx.brief && mode !== 'onboarding') p += `
 
-HE JUST OPENED HIS MORNING BRIEF. Speak first, now. Greet him in one line, then: today's prayers with jama'ah times (lead with the next one), today's calendar (what's fixed, and any clashes with jama'ah times), any important unread email worth his attention (one line each, max three), ONE line on money (balance, anything due or off-pace, or progress to his savings goal; skip numbers he didn't ask for if nothing's notable), how his prayers and habits went yesterday and any streaks worth naming, then help him set two or three priorities for today (ask for his top one if you don't know it), and one habit nudge. Under ninety seconds. End with one short question.`;
+HE JUST OPENED HIS MORNING BRIEF. Speak first, now. Greet him in one line, then: today's prayers with jama'ah times (lead with the next one), today's calendar (what's fixed, and any clashes with jama'ah times), any important unread email worth his attention (one line each, max three), ONE line on money (balance, anything due or off-pace, or progress to his savings goal; skip numbers he didn't ask for if nothing's notable; only mention a spending pattern if it is in PATTERNS HE ALREADY KNOWS), how his prayers and habits went yesterday and any streaks worth naming, then help him set two or three priorities for today (ask for his top one if you don't know it), and one habit nudge. Under ninety seconds. End with one short question.`;
   if (ctx.debrief) p += `\n\nHE OPENED A MEETING DEBRIEF for "${ctx.debrief.summary}" (${ctx.debrief.when}). Speak first: one line to open, then a quick debrief, one question at a time: how it went, what was decided, what he owes and by when, anything that worried him. ${ctx.debrief.notes ? 'You already have the meeting notes below; confirm the key points with him rather than asking from scratch. Notes: ' + ctx.debrief.notes : ''} Keep it to about two minutes. When done, call save_debrief with event_id "${ctx.debrief.id}" and a tight summary (decisions, his follow-ups with dates).`;
   if (mode === 'onboarding') {
     p += `
@@ -70,13 +71,20 @@ function lifeBlock(L, ctx) {
     if (ctx.recentNotes && ctx.recentNotes.length) lines.push('Recent meeting notes: ' + ctx.recentNotes.map(n => n.summary).join(' | ').slice(0, 3000));
   } else if (gg.status === 'expired') lines.push('Google access has EXPIRED. If he asks for calendar or email, tell him to tap Reconnect Google on the home screen.');
   else lines.push("Google Workspace is not connected yet. If he asks about calendar/email/Drive, or at a natural moment, offer to connect it and call connect_google.");
-  const mo = ctx.money;
+  const mo = ctx.mode === 'onboarding' ? null : ctx.money;
   if (mo && mo.balances) {
     lines.push(`Money (read-only, as of ${mo.as_of ? new Date(mo.as_of).toLocaleString('en-GB', { timeZone: 'Europe/London', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'unknown'}): total ${M.gbp(mo.balances.total)}` + (mo.balances.main ? `, main account ${M.gbp(mo.balances.main.balance)}` : '') + `. This month: spent ${M.gbp(mo.this_month.spent)} (usual by now about ${M.gbp(mo.this_month.usual_spend_to_date)}), income ${M.gbp(mo.this_month.income)}. Usual month: income ${M.gbp(mo.usual.monthly_income)}, spend ${M.gbp(mo.usual.monthly_spend)}.`);
     if (mo.upcoming && mo.upcoming.length) lines.push('Bills due in the next 14 days: ' + mo.upcoming.slice(0, 6).map(u => `${u.name} ${M.gbp(u.amount)} on ${u.due}`).join('; ') + '.');
     if (mo.insights && mo.insights.length) lines.push('Money insights: ' + mo.insights.slice(0, 4).map(i => `[${i.level}] ${i.text}`).join(' '));
     if (mo.goal) lines.push(`Savings goal: ${mo.goal.label}: ${mo.goal.amount ? M.gbp(+mo.goal.amount) : M.gbp(+mo.goal.monthly) + ' a month'}${mo.goal.by ? ' by ' + mo.goal.by : ''}.`);
-  } else if (ctx.moneyConfigured) lines.push('Bank data is connected but the first sync has not finished yet.');
+  } else if (ctx.moneyConfigured && ctx.mode !== 'onboarding') lines.push('Bank data is connected but the first sync has not finished yet.');
+  const pv = ctx.mode === 'onboarding' ? null : ctx.patterns;
+  if (pv) {
+    lines.push(pv.known.length ? 'PATTERNS HE ALREADY KNOWS (you have discussed these with him; you may refer back to them naturally): ' + pv.known.map(k => `${k.say} (${k.his_answer})`).join(' | ') : 'You have not discussed any spending patterns with him yet.');
+    if (pv.drift && pv.drift.drifting) lines.push(`Path watch: ${pv.drift.text}`);
+    if (pv.candidate) lines.push(`ONE PATTERN YOU MAY GENTLY RAISE (pattern_id ${pv.candidate.id}, ${pv.candidate.confidence} confidence over ${pv.candidate.evidence_days} days): ${pv.candidate.say} Only if money, spending or his week comes up naturally in THIS conversation and he isn't in a rush. Ask first, curious not clinical, e.g. "${pv.candidate.ask}" Then listen. Call note_pattern with status "raised" when you raise it, then "confirmed" or "dismissed" from his answer. Never raise more than this one.`);
+    else lines.push('You are still getting to know his spending. Do not volunteer spending patterns, habits or "I noticed" observations about his money yet.');
+  }
   return `
 
 TODAY'S LIFE ENGINE (live data, UK time):
@@ -105,7 +113,8 @@ MONEY RULES (his bank, read-only via Lunch Flow; Monzo now, more banks later):
 - His goals: never be broke, and save more. When he names a target, call set_savings_goal (no upper limit). Be honest if the odds are poor and suggest the smallest change that fixes them.
 - Spending categories: Groceries, Eating out, Takeaways, Transport, Fuel, Shopping, Bills, Subscriptions, Housing, Health, Family, People, Charity, Entertainment, Travel, Personal care, Education, Fees, Cash, Business, Other.
 - Money is private: never read balances aloud during private mode or a meeting; keep it to "I'll tell you later". No lectures; one nudge at most, and celebrate wins (including sadaqah).
-- If bank access is due for renewal or broken, tell him to open Lunch Flow and reconnect (a minute's job).`;
+- If bank access is due for renewal or broken, tell him to open Lunch Flow and reconnect (a minute's job).
+- GETTING TO KNOW HIM: treat him as someone you're still getting to know. You study his transactions quietly in the background, but you never dump what you've learned. Patterns surface one at a time, only once there's solid evidence, only when relevant, and as a question first. If he asks "what are my spending habits" or "why do I overspend", call explain_patterns: share only what it returns as known, plus at most the one candidate (as a question), and otherwise say honestly you're still learning him and ask what he thinks drives it. Phrase triggers gently, never as judgement. Never mention p-values or statistics jargon; say "I'm fairly sure" or "I think" instead.`;
 }
 
 const OBJ = (properties, required) => ({ type: 'OBJECT', properties, required });
@@ -144,6 +153,8 @@ const LIFE_TOOLS = [
   { name: 'list_subscriptions', description: 'Recurring bills and subscriptions detected from his transactions, with next due dates.', parameters: OBJ({}, []) },
   { name: 'simulate', description: 'Run 10,000 Monte Carlo futures of his balance from his real income and spending. Returns chance of never going below £0, expected savings, the range, and the best path to save more.', parameters: OBJ({ months: { type: 'INTEGER', description: '3, 6, 12 or 24 (default 6)' }, cuts: { type: 'ARRAY', items: OBJ({ category: STR('Spending category'), percent: { type: 'NUMBER', description: 'Percent to cut, 0-100' } }, ['category', 'percent']) }, cancel: { type: 'ARRAY', items: { type: 'STRING' }, description: 'Merchant names of subscriptions/bills to drop' }, purchase_amount: { type: 'NUMBER', description: 'One-off purchase in £ (can I afford X)' }, purchase_month: { type: 'INTEGER', description: '0 = this month, 1 = next month...' }, monthly_change: { type: 'NUMBER', description: '£ per month: negative for a new cost (e.g. -50 gym), positive for extra income' }, income_change_pct: { type: 'NUMBER', description: 'Percent change to income, e.g. 10 for a raise' }, goal: { type: 'NUMBER', description: 'Savings amount to test against, £' }, label: STR('Short name for the scenario') }, []) },
   { name: 'set_savings_goal', description: 'Set his savings goal (no upper limit). Returns the odds of hitting it.', parameters: OBJ({ amount: { type: 'NUMBER', description: 'Total £ to save' }, monthly: { type: 'NUMBER', description: 'Or £ per month' }, by: STR('Target date YYYY-MM-DD (optional)'), label: STR('e.g. Emergency fund, Hajj, House deposit') }, []) },
+  { name: 'explain_patterns', description: 'His spending patterns that you are allowed to talk about (already discussed ones, plus at most one new one to ask him about), forecast accuracy, and whether he is on his best path.', parameters: OBJ({}, []) },
+  { name: 'note_pattern', description: 'Record that you raised a spending pattern with him, or his answer to it.', parameters: OBJ({ pattern_id: STR('pattern_id'), status: { type: 'STRING', enum: ['raised', 'confirmed', 'dismissed'] } }, ['pattern_id', 'status']) },
   { name: 'show_money', description: 'Open the money view on his screen.', parameters: OBJ({}, []) },
   { name: 'enable_notifications', description: 'Show him the button to switch on phone notifications.', parameters: OBJ({ reason: STR('Short reason') }, []) }
 ];
@@ -158,7 +169,8 @@ async function loadContext() {
     ]);
     const [life, subs] = await Promise.all([lifeState().catch(() => null), db('push_subscriptions?select=endpoint').catch(() => [])]);
     const ctx = { memory: true, profile, memories, answers, life, pushOn: subs.length > 0, moneyConfigured: M.configured() };
-    try { const md = await M.load(); if (md.accounts.length) { ctx.money = M.analyse(md); delete ctx.money.months; delete ctx.money.recurring; } } catch (e) {}
+    try { const md = await M.load(); if (md.accounts.length) { ctx.money = M.analyse(md); delete ctx.money.months; delete ctx.money.recurring;
+      ctx.patterns = await PL.view(profile); ctx.patterns.drift = profile.onboarding_status === 'complete' ? await PL.driftCheck(md).catch(() => null) : null; } } catch (e) {}
     if (life && life.google && life.google.connected) {
       const now = new Date().toISOString();
       const [cal, deb, notes] = await Promise.all([
@@ -184,6 +196,7 @@ module.exports = async (req, res) => {
   ctx.mode = ctx.memory && (wanted === 'onboarding' || (wanted !== 'companion' && (status === 'not_started' || status === 'in_progress'))) ? 'onboarding' : 'companion';
   if (ctx.mode === 'onboarding' && status !== 'in_progress') { try { await setProfile('onboarding_status', 'in_progress'); } catch (e) {} }
   ctx.brief = wanted === 'brief';
+  if (ctx.mode === 'companion' && status === 'complete') { try { const t = new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/London' }); if (ctx.profile.last_companion_day !== t) { await setProfile('last_companion_day', t); await setProfile('companion_days', String((+ctx.profile.companion_days || 0) + 1)); } } catch (e) {} }
   if (ctx.memory && ctx.life && ctx.life.google && ctx.life.google.connected) {
     if (ctx.brief) ctx.unread = await G.importantUnread().catch(() => null);
     if (wanted === 'debrief' && req.query.event) {
