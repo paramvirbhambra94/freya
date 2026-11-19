@@ -56,3 +56,27 @@ textarea,.contact input{width:100%;background:rgba(40,26,10,.6);border:1px solid
 .contact input:last-child{grid-column:1/-1}
 .err{color:#ff9d7a;font-size:13px;min-height:1em}
 @media (prefers-reduced-motion:reduce){.orb,.swirl,body.busy .work{animation:none!important}#rings span{animation-duration:.01s}}
+#top{position:fixed;top:calc(14px + env(safe-area-inset-top));left:0;right:0;display:grid;justify-items:center;gap:10px;z-index:2}
+#top[hidden]{display:none}
+#next{font-size:12px;letter-spacing:.12em;color:#d9c39b;opacity:.75}
+#dots{display:flex;gap:14px}
+.dot{background:none;padding:0;display:grid;justify-items:center;gap:4px;color:#a8916d;font-weight:400;font-size:10px;letter-spacing:.1em}
+.dot i{width:12px;height:12px;border-radius:50%;border:1px solid rgba(232,180,90,.5);transition:all .3s}
+.dot.done i{background:var(--gold);box-shadow:0 0 8px rgba(232,180,90,.6)}
+.dot.jamaah i{background:#ffe2a6;box-shadow:0 0 12px rgba(255,210,130,.9)}
+.dot.missed i{border-color:rgba(255,157,122,.6);background:rgba(255,157,122,.15)}
+body.private .orb{filter:brightness(.55) saturate(.7);animation-duration:9s}
+body.private #bg{opacity:.4}
+.chip{position:fixed;bottom:calc(46px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);background:rgba(40,26,10,.85);border:1px solid rgba(232,180,90,.5);color:var(--gold);font-weight:500;font-size:13px;padding:9px 16px}
+.chip[hidden]{display:none}
+#lock,#logq{position:fixed;inset:0;z-index:20;display:grid;place-items:center;background:#0b0805}
+#logq{background:rgba(11,8,5,.8)}
+#lock[hidden],#logq[hidden],#lock [hidden]{display:none}
+.lock-inner{max-width:340px;padding:24px;display:grid;gap:18px;justify-items:center;text-align:center}
+.lock-inner>div{display:grid;gap:14px;justify-items:center}
+.lock-inner p{font-size:14px;opacity:.75;line-height:1.5}
+.orb.mini{position:relative;width:90px;height:90px;cursor:default}
+#rcode{font-size:20px;letter-spacing:.12em;color:var(--gold);padding:12px 16px;border:1px dashed rgba(232,180,90,.5);border-radius:10px;user-select:all}
+#recin{width:100%;background:rgba(40,26,10,.6);border:1px solid rgba(232,180,90,.3);border-radius:10px;padding:12px;color:#f3e6cf;font-size:16px;text-align:center;letter-spacing:.1em}
+.row{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
+.sheet{background:#1a1108;border:1px solid rgba(232,180,90,.3);border-radius:16px;padding:20px;display:grid;gap:14px;text-align:center;max-width:340px}

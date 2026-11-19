@@ -1,8 +1,9 @@
 // Onboarding state, answers, plan, pledge and emergency contacts.
 const { db, configured, getProfile, setProfile, readBody, clip } = require('./_db');
+const { requireAuth } = require('./_auth');
 
 module.exports = async (req, res) => {
-  res.setHeader('Cache-Control', 'no-store');
+  if (!(await requireAuth(req, res))) return;
   if (!configured()) return res.status(200).json({ configured: false });
   try {
     if (req.method === 'GET') {

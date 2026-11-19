@@ -14,6 +14,7 @@
 </head>
 <body>
 <canvas id="bg" aria-hidden="true"></canvas>
+<header id="top" hidden><div id="next"></div><div id="dots"></div></header>
 <main>
   <div class="stage">
     <div id="rings" aria-hidden="true"></div>
@@ -29,6 +30,35 @@
 <form id="textbar" hidden autocomplete="off"><input id="textin" placeholder="Type to Freya…" enterkeyhint="send"><button>Send</button></form>
 <div id="toast" aria-live="polite"></div>
 <button id="redo" hidden>Redo setup</button>
+<button id="notify" class="chip" hidden>Turn on reminders</button>
+
+<section id="logq" hidden><div class="sheet"><p id="logq-title"></p><div class="row"><button data-s="jamaah">In jama'ah</button><button data-s="prayed">Prayed</button><button data-s="missed" class="ghost">Missed</button><button data-s="later" class="link">Later</button></div></div></section>
+
+<section id="lock" hidden>
+  <div class="lock-inner">
+    <div class="orb mini" aria-hidden="true"></div>
+    <h1>F.R.E.Y.A.</h1>
+    <div data-v="enrol" hidden>
+      <p>One-time setup, Eesah. Lock me to your fingerprint so nobody else can open your life.</p>
+      <button id="btn-enrol">Set up fingerprint</button>
+    </div>
+    <div data-v="recovery" hidden>
+      <p>Your recovery code. Save it somewhere safe (a screenshot in a private album works). It's the only way to add a new phone if you lose this one, and you won't see it again.</p>
+      <code id="rcode"></code>
+      <div class="row"><button id="btn-copy" class="ghost">Copy</button><button id="btn-saved">I've saved it</button></div>
+    </div>
+    <div data-v="unlock" hidden>
+      <button id="btn-unlock">Unlock</button>
+      <button id="to-recover" class="link">New phone? Use your recovery code</button>
+    </div>
+    <div data-v="recover" hidden>
+      <p>Enter your recovery code to add this device.</p>
+      <input id="recin" placeholder="XXXX-XXXX-XXXX-XXXX" autocapitalize="characters" autocomplete="off">
+      <div class="row"><button id="back-unlock" class="link">Back</button><button id="btn-recover">Add this device</button></div>
+    </div>
+    <p id="lock-err" class="err"></p>
+  </div>
+</section>
 
 <section id="wrap" hidden>
   <div class="wrap-inner">

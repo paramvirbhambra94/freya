@@ -15,6 +15,7 @@ setStatus(idleMsg);
 
 let ws = null, micCtx = null, micStream = null, micNode = null, outCtx = null, analyser = null;
 let nextTime = 0, sources = new Set(), active = false, connecting = false, model = null, mode = 'companion';
+let briefPending = new URLSearchParams(location.search).has('brief');
 let micLevel = 0, outLevel = 0, retries = 0, finishing = null, onboardingState = { configured: false, status: null, plan: null };
 
 // ---------- captions & toast ----------
@@ -100,12 +101,40 @@ function ripple(strength) {
 })();
 
 // ---------- tools ----------
-const post = (url, body) => fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then(r => r.json().catch(() => ({})).then(j => ({ ok: r.ok, ...j })));
+const post = (url, body) => fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then(r => { if (r.status === 401) showLock(); return r.json().catch(() => ({})).then(j => ({ ok: r.ok, ...j })); });
+const getJ = url => fetch(url, { cache: 'no-store' }).then(r => { if (r.status === 401) showLock(); return r.json().catch(() => ({})).then(j => ({ ok: r.ok, status: r.status, ...j })); });
+let pendingStop = null;
+function here() {
+  return new Promise((res, rej) => navigator.geolocation ? navigator.geolocation.getCurrentPosition(p => res({ lat: p.coords.latitude, lng: p.coords.longitude }), () => rej(new Error('location blocked')), { timeout: 15000, maximumAge: 600000 }) : rej(new Error('no location')));
+}
 async function handleTool(f) {
   const a = f.args || {};
   try {
     if (f.name === 'save_memory') { const r = await post('/api/memory', { category: a.category, content: a.content }); if (r.ok) toast('Noted: ' + a.content); return r.ok ? 'saved' : 'not saved'; }
     if (f.name === 'save_answer') { const r = await post('/api/onboarding', { action: 'answer', topic: a.topic, question: a.question, answer: a.answer }); if (r.ok) toast('Noted · ' + (a.topic || 'answer')); return r.ok ? 'saved' : 'not saved'; }
+    if (f.name === 'get_prayer_times') { const r = await getJ('/api/prayers'); return r.ok ? JSON.stringify({ today: r.today, tomorrow: r.tomorrow, next: r.next, mosque: r.mosque, travelling: r.travelling }) : 'unavailable'; }
+    if (f.name === 'log_prayer') { const r = await post('/api/state', { action: 'log', name: a.prayer, status: a.status }); if (r.ok) { toast(a.status === 'clear' ? 'Cleared ' + a.prayer : 'Logged · ' + a.prayer + (a.status === 'jamaah' ? ' in jama\'ah' : a.status === 'missed' ? ' (missed)' : '')); loadLife(); } return r.ok ? 'logged' : (r.error || 'failed'); }
+    if (f.name === 'log_habit') { const r = await post('/api/state', { action: 'log', name: a.name, status: a.done === false ? 'missed' : 'done' }); if (r.ok) { toast('Logged · ' + a.name); loadLife(); } return r.ok ? 'logged' : (r.error || 'failed'); }
+    if (f.name === 'add_habit') { const r = await post('/api/state', { action: 'add_habit', name: a.name }); if (r.ok) { toast('New habit: ' + a.name); loadLife(); } return r.ok ? 'added' : 'failed'; }
+    if (f.name === 'set_private_mode') {
+      const r = await post('/api/state', { action: 'private', on: !!a.on, minutes: a.minutes });
+      if (r.ok && a.on) { pendingStop = 'Standing down. Tap the orb when you want me back.'; }
+      if (r.ok) loadLife();
+      return r.ok ? (a.on ? 'Private mode on. Say at most two words, then the session ends.' : 'Private mode off.') : 'failed';
+    }
+    if (f.name === 'set_brief_time') { const r = await post('/api/state', { action: 'brief_time', time: a.time }); if (r.ok) toast('Morning brief · ' + a.time); return r.ok ? 'set' : (r.error || 'failed'); }
+    if (f.name === 'find_mosques') {
+      let body = { action: 'search', q: a.query, country: a.country || 'GB' };
+      if (a.near_me || !a.query) { try { Object.assign(body, await here()); } catch (e) { if (!a.query) return 'Location is blocked on his phone; ask him for the area or postcode instead.'; } }
+      const r = await post('/api/prayers', body); return r.ok ? JSON.stringify(r.results) : 'search unavailable';
+    }
+    if (f.name === 'set_mosque') { const r = await post('/api/prayers', { action: 'set_mosque', slug: a.slug }); if (r.ok) { toast('Mosque · ' + r.mosque); loadLife(); } return r.ok ? 'switched to ' + r.mosque : 'could not load that mosque'; }
+    if (f.name === 'set_travelling') {
+      if (!a.on) { const r = await post('/api/prayers', { action: 'home' }); loadLife(); return r.ok ? 'back to home mosque times' : 'failed'; }
+      try { const loc = await here(); const r = await post('/api/prayers', { action: 'travel', ...loc }); loadLife(); toast('Travelling · local times'); return r.ok ? 'using calculated times for his location' : 'failed'; }
+      catch (e) { return 'Location is blocked; could not switch to travel times.'; }
+    }
+    if (f.name === 'enable_notifications') { showNotifyChip(true); return 'The button is on his screen now; ask him to tap it.'; }
     if (f.name === 'finish_onboarding') {
       const plan = { headline: a.headline, sections: a.sections || [], pledge: a.pledge };
       await post('/api/onboarding', { action: 'plan', plan });
@@ -116,13 +145,15 @@ async function handleTool(f) {
 }
 let turnDone = false;
 function checkFinish() {
+  if (pendingStop && turnDone && !sources.size) { const m = pendingStop; pendingStop = null; setTimeout(() => stop(m), 400); return; }
   if (finishing && turnDone && !sources.size) { const plan = finishing; finishing = null; forceOnboarding = false; setTimeout(() => { stop('Your plan is ready.'); showWrap(plan); }, 600); }
 }
 
 // ---------- session ----------
 async function connect(isReconnect) {
-  const q = forceOnboarding ? '?mode=onboarding' : '';
+  const q = forceOnboarding ? '?mode=onboarding' : (briefPending && !isReconnect ? '?mode=brief' : '');
   const r = await fetch('/api/token' + q, { method: 'POST', cache: 'no-store' });
+  if (r.status === 401) { showLock(); throw new Error('Locked. Unlock with your fingerprint first.'); }
   const j = await r.json().catch(() => ({}));
   if (!r.ok || !j.token) throw new Error(j.error || "Couldn't reach her brain. Try again in a moment.");
   model = j.model; mode = j.mode || 'companion';
@@ -165,6 +196,9 @@ async function connect(isReconnect) {
       : '(Cue: Eesah just tapped the orb to start his onboarding. Begin now.)';
     sock.send(JSON.stringify({ realtimeInput: { text: cue } }));
     setBusy(true);
+  } else if (j.brief) {
+    briefPending = false; history.replaceState(null, '', '/');
+    sock.send(JSON.stringify({ realtimeInput: { text: '(Cue: Eesah opened his morning brief. Begin it now.)' } })); setBusy(true);
   } else if (isReconnect) {
     sock.send(JSON.stringify({ realtimeInput: { text: '(Cue: the connection refreshed. Do not say anything; wait for Eesah.)' } }));
   }
@@ -223,7 +257,12 @@ function stop(msg) {
   setState('idle'); setStatus(msg || idleMsg);
 }
 
-orb.addEventListener('click', () => { active ? stop() : start(); });
+orb.addEventListener('click', () => {
+  if (!authed) return showLock();
+  if (active) return stop();
+  if (life && life.private && life.private.manualUntil) { post('/api/state', { action: 'private', on: false }).then(loadLife); }
+  start();
+});
 orb.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); orb.click(); } });
 $('textbar').addEventListener('submit', e => {
   e.preventDefault(); const t = $('textin').value.trim(); if (!t || !ws || ws.readyState !== 1) return;
@@ -233,14 +272,14 @@ document.addEventListener('visibilitychange', () => { if (document.hidden && act
 
 // ---------- onboarding status ----------
 async function loadOnboarding() {
-  try {
-    const r = await fetch('/api/onboarding', { cache: 'no-store' }); onboardingState = await r.json();
-  } catch (e) { onboardingState = { configured: false }; }
+  try { const r = await getJ('/api/onboarding'); if (r.status === 401) return; onboardingState = r; }
+  catch (e) { onboardingState = { configured: false }; }
   if (!onboardingState.configured) return;
   const st = onboardingState.status;
   if (st === 'awaiting_pledge' && onboardingState.plan) { idleMsg = 'Your plan is waiting for your signature.'; showWrap(onboardingState.plan); }
   else if (st !== 'complete' || forceOnboarding) idleMsg = greeting + " Before anything else, let's set you up properly. Tap the orb to begin.";
-  else $('redo').hidden = false;
+  else { $('redo').hidden = false; showNotifyChip(false); }
+  if (briefPending && st === 'complete') idleMsg = 'Your morning brief is ready. Tap the orb.';
   if (!active) setStatus(idleMsg);
 }
 $('redo').addEventListener('click', async () => {
@@ -311,5 +350,147 @@ $('commit').addEventListener('click', async () => {
   if (forceOnboarding) { forceOnboarding = false; history.replaceState(null, '', '/'); }
 });
 
-loadOnboarding();
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js');
+boot();
+
+// ================= Sign-in (passkey, single owner) =================
+let authed = false, life = null;
+const b2u = buf => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const u2b = s => { s = s.replace(/-/g, '+').replace(/_/g, '/'); while (s.length % 4) s += '='; return Uint8Array.from(atob(s), c => c.charCodeAt(0)).buffer; };
+function lockView(v) { document.querySelectorAll('#lock [data-v]').forEach(e => { e.hidden = e.dataset.v !== v; }); }
+function showLock(view) {
+  authed = false; if (active) stop();
+  $('lock').hidden = false; $('lock-err').textContent = '';
+  if (view) return lockView(view);
+  getJ('/api/auth/status').then(s => lockView(s.enrolled ? 'unlock' : 'enrol')).catch(() => lockView('unlock'));
+}
+async function enrol(recovery) {
+  const err = $('lock-err'); err.textContent = '';
+  try {
+    const o = await post('/api/auth/register-options', { recovery });
+    if (!o.ok) throw new Error(o.error || 'Could not start setup.');
+    const cred = await navigator.credentials.create({ publicKey: {
+      ...o, challenge: u2b(o.challenge), user: { ...o.user, id: u2b(o.user.id) },
+      excludeCredentials: (o.excludeCredentials || []).map(c => ({ ...c, id: u2b(c.id) }))
+    } });
+    const r = await post('/api/auth/register-verify', { response: {
+      id: cred.id, rawId: b2u(cred.rawId), type: cred.type, authenticatorAttachment: cred.authenticatorAttachment || undefined,
+      clientExtensionResults: cred.getClientExtensionResults(),
+      response: { clientDataJSON: b2u(cred.response.clientDataJSON), attestationObject: b2u(cred.response.attestationObject), transports: cred.response.getTransports ? cred.response.getTransports() : [] }
+    } });
+    if (!r.ok) throw new Error(r.error || 'Setup failed.');
+    authed = true;
+    if (r.recovery) { $('rcode').textContent = r.recovery; lockView('recovery'); } else unlocked();
+  } catch (e) { err.textContent = e.name === 'NotAllowedError' ? 'Cancelled. Tap to try again.' : (e.message || 'Setup failed.'); }
+}
+async function unlock() {
+  const err = $('lock-err'); err.textContent = '';
+  try {
+    const o = await post('/api/auth/login-options', {});
+    if (!o.ok) throw new Error(o.error || 'Could not start sign-in.');
+    const cred = await navigator.credentials.get({ publicKey: { ...o, challenge: u2b(o.challenge), allowCredentials: (o.allowCredentials || []).map(c => ({ ...c, id: u2b(c.id) })) } });
+    const r = await post('/api/auth/login-verify', { response: {
+      id: cred.id, rawId: b2u(cred.rawId), type: cred.type, clientExtensionResults: cred.getClientExtensionResults(),
+      response: { clientDataJSON: b2u(cred.response.clientDataJSON), authenticatorData: b2u(cred.response.authenticatorData), signature: b2u(cred.response.signature), userHandle: cred.response.userHandle ? b2u(cred.response.userHandle) : undefined }
+    } });
+    if (!r.ok) throw new Error(r.error || 'Sign-in failed.');
+    authed = true; unlocked();
+  } catch (e) { err.textContent = e.name === 'NotAllowedError' ? 'Cancelled. Tap Unlock to try again.' : (e.message || 'Sign-in failed.'); }
+}
+function unlocked() { $('lock').hidden = true; loadOnboarding(); loadLife(); }
+$('btn-enrol').addEventListener('click', () => enrol());
+$('btn-unlock').addEventListener('click', unlock);
+$('btn-saved').addEventListener('click', unlocked);
+$('btn-copy').addEventListener('click', () => { navigator.clipboard && navigator.clipboard.writeText($('rcode').textContent).then(() => toast('Recovery code copied')); });
+$('to-recover').addEventListener('click', () => lockView('recover'));
+$('btn-recover').addEventListener('click', () => enrol($('recin').value.trim()));
+$('back-unlock').addEventListener('click', () => lockView('unlock'));
+async function boot() {
+  const s = await getJ('/api/auth/status').catch(() => ({ ok: false }));
+  if (s.ok && s.authed) { authed = true; return unlocked(); }
+  if (!s.ok) { authed = true; return loadOnboarding(); } // memory not configured: voice-only mode
+  showLock(s.enrolled ? 'unlock' : 'enrol');
+  if (s.enrolled) unlock(); // one tap: the fingerprint prompt appears straight away
+}
+
+// ================= Daily life: next prayer, dots, private mode =================
+const PR = ['fajr', 'dhuhr', 'asr', 'maghrib', 'isha'], cap = n => n[0].toUpperCase() + n.slice(1);
+async function loadLife() {
+  const r = await getJ('/api/state').catch(() => null);
+  if (!r || !r.ok) return;
+  life = r; renderLife();
+}
+function renderLife() {
+  if (!life || !life.schedule) return;
+  $('top').hidden = false;
+  const sc = life.schedule, n = sc.next;
+  const pv = life.private || {};
+  document.body.classList.toggle('private', !!pv.on);
+  let txt = '';
+  if (pv.on) txt = pv.manualUntil ? 'Private · standing down' : `Private · ${cap(pv.auto.prayer)} until ${pv.auto.until}`;
+  else if (n) {
+    const target = n.iqamah || n.adhan, mins = minutesUntil(target, n.day);
+    txt = `${n.prayer === 'dhuhr' && sc.today.jumuah && n.day === 'today' ? "Jumu'ah" : cap(n.prayer)} ${n.iqamah ? "jama'ah " : ''}${target} · ${fmtIn(mins)}`;
+  }
+  $('next').textContent = txt + (sc.travelling ? ' · travelling' : sc.today.source !== 'mawaqit' ? ' · calculated' : '');
+  const habits = life.habits || [];
+  $('dots').innerHTML = PR.map(p => {
+    const h = habits.find(x => x.kind === 'prayer' && x.name.toLowerCase() === p) || {};
+    const st = h.today || '', done = ['done', 'prayed', 'jamaah', 'qada'].includes(st);
+    return `<button class="dot ${done ? 'done' : ''} ${st === 'missed' ? 'missed' : ''} ${st === 'jamaah' ? 'jamaah' : ''}" data-p="${p}" aria-label="${cap(p)}: ${st || 'not logged'}"><i></i><span>${cap(p)[0]}</span></button>`;
+  }).join('');
+  if (!active) setStatus(pv.on && !pv.manualUntil ? `Salah time. I'll be here after ${cap(pv.auto.prayer)}.` : idleMsg);
+}
+function minutesUntil(hm, day) {
+  const [h, m] = hm.split(':').map(Number);
+  const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'Europe/London' }));
+  return h * 60 + m + (day === 'tomorrow' ? 1440 : 0) - (now.getHours() * 60 + now.getMinutes());
+}
+const fmtIn = m => m <= 0 ? 'now' : m < 60 ? `in ${m} min` : `in ${Math.floor(m / 60)}h ${m % 60}m`;
+setInterval(() => { if (authed && life) { renderLife(); } }, 30000);
+setInterval(() => { if (authed && !document.hidden) loadLife(); }, 5 * 60000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden && authed) loadLife(); });
+$('dots').addEventListener('click', e => {
+  const b = e.target.closest('.dot'); if (!b) return;
+  const p = b.dataset.p, h = (life.habits || []).find(x => x.kind === 'prayer' && x.name.toLowerCase() === p) || {};
+  const cycle = { '': 'prayed', null: 'prayed', prayed: 'jamaah', jamaah: 'missed', missed: 'clear', done: 'jamaah', qada: 'clear' };
+  const next = cycle[h.today || ''] || 'prayed';
+  h.today = next === 'clear' ? null : next; renderLife();
+  post('/api/state', { action: 'log', name: p, status: next }).then(r => { if (r.ok) toast(next === 'clear' ? `${cap(p)} cleared` : `${cap(p)} · ${next === 'jamaah' ? "in jama'ah" : next}`); loadLife(); });
+});
+// Check-in from a notification: /?log=asr
+(function () {
+  const p = new URLSearchParams(location.search).get('log');
+  if (!p || !PR.includes(p)) return;
+  $('logq-title').textContent = `Did you pray ${cap(p)}?`; $('logq').hidden = false;
+  $('logq').onclick = e => {
+    const st = e.target.dataset && e.target.dataset.s; if (!st) return;
+    $('logq').hidden = true; history.replaceState(null, '', '/');
+    if (st !== 'later') post('/api/state', { action: 'log', name: p, status: st }).then(() => { toast(`${cap(p)} logged`); loadLife(); });
+  };
+})();
+
+// ================= Notifications =================
+function showNotifyChip(force) {
+  if (!('Notification' in window) || !('PushManager' in window)) return;
+  if (Notification.permission === 'granted') { ensurePush(); return; }
+  if (Notification.permission === 'default' && (force || (onboardingState.status === 'complete'))) $('notify').hidden = false;
+}
+async function ensurePush() {
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) {
+      const k = await getJ('/api/push'); if (!k.ok) return;
+      sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: u2b(k.publicKey) });
+    }
+    await post('/api/push', { action: 'subscribe', sub: sub.toJSON() });
+    return true;
+  } catch (e) { return false; }
+}
+$('notify').addEventListener('click', async () => {
+  const p = await Notification.requestPermission();
+  $('notify').hidden = true;
+  if (p === 'granted' && await ensurePush()) { await post('/api/push', { action: 'test' }); toast('Reminders on'); }
+  else toast('Notifications are blocked. You can allow them in phone settings.');
+});

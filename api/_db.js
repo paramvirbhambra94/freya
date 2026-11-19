@@ -28,4 +28,25 @@ async function readBody(req) {
 }
 const clip = (s, n) => String(s == null ? '' : s).slice(0, n);
 
-module.exports = { db, configured, getProfile, setProfile, readBody, clip };
+// Server-only secrets (session key, VAPID keys, cron secret) live in app_secrets, generated on first use.
+const secretCache = {};
+async function getSecret(key, gen) {
+  if (secretCache[key]) return secretCache[key];
+  let rows = await db(`app_secrets?select=value&key=eq.${encodeURIComponent(key)}`);
+  if (!rows.length && gen) {
+    await db('app_secrets?on_conflict=key', { method: 'POST', prefer: 'resolution=ignore-duplicates', body: { key, value: await gen() } });
+    rows = await db(`app_secrets?select=value&key=eq.${encodeURIComponent(key)}`);
+  }
+  if (!rows.length) throw new Error('secret_missing_' + key);
+  return (secretCache[key] = rows[0].value);
+}
+const setSecret = (key, value) => { delete secretCache[key]; return db('app_secrets?on_conflict=key', { method: 'POST', prefer: 'resolution=merge-duplicates', body: { key, value } }); };
+
+// Current time in the owner's zone
+function london(d = new Date()) {
+  const f = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', weekday: 'short', hourCycle: 'h23' });
+  const p = Object.fromEntries(f.formatToParts(d).map(x => [x.type, x.value]));
+  return { date: `${p.year}-${p.month}-${p.day}`, y: +p.year, m: +p.month, d: +p.day, hm: `${p.hour}:${p.minute}`, min: (+p.hour) * 60 + (+p.minute), weekday: p.weekday };
+}
+
+module.exports = { db, configured, getProfile, setProfile, readBody, clip, getSecret, setSecret, london };
