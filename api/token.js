@@ -2,6 +2,7 @@ const { db, configured, getProfile, setProfile } = require('./_db');
 const { requireAuth } = require('./_auth');
 const { lifeState } = require('./_life');
 const G = require('./_google');
+const M = require('./_money');
 // Mints a short-lived, single-use Gemini Live token. The API key never leaves the server.
 const MODEL = 'models/gemini-3.8-live';
 const VOICE = 'Sulafat';
@@ -26,7 +27,7 @@ HOW YOU HELP: push him to grow. Help him think, decide and act; never do his thi
 
 MEMORY: When you learn something durable about Eesah (a fact, preference, goal, commitment, routine, person in his life, worry), quietly call save_memory with a short, specific note. Never announce that you are saving. Never invent facts about his life; use only what he has told you or what is listed below.
 
-LIMITS FOR NOW: you can see his prayer times, habits and streaks, and you can log prayers, set private mode and his brief time, and send him phone reminders. You do not yet have access to his bank. If he asks for something you can't do yet, say so in one line and offer what you can do. Be respectful of his faith.`;
+LIMITS FOR NOW: you can see his prayer times, habits and streaks, and you can log prayers, set private mode and his brief time, and send him phone reminders. You can see his bank accounts read-only (balances, spending, bills, simulations); you can never move money or make payments. If he asks for something you can't do yet, say so in one line and offer what you can do. Be respectful of his faith.`;
   if (ctx.profile && Object.keys(ctx.profile).length) {
     p += '\n\nWHAT YOU ALREADY KNOW ABOUT EESAH (pre-loaded; treat as true unless he corrects it):\n' +
       Object.entries(ctx.profile).filter(([k]) => !['onboarding_status', 'onboarding_completed_at', 'life_plan'].includes(k)).map(([k, v]) => `- ${k}: ${v}`).join('\n');
@@ -37,7 +38,7 @@ LIMITS FOR NOW: you can see his prayer times, habits and streaks, and you can lo
   if (ctx.life) p += lifeBlock(ctx.life, ctx);
   if (ctx.brief && mode !== 'onboarding') p += `
 
-HE JUST OPENED HIS MORNING BRIEF. Speak first, now. Greet him in one line, then: today's prayers with jama'ah times (lead with the next one), today's calendar (what's fixed, and any clashes with jama'ah times), any important unread email worth his attention (one line each, max three), how his prayers and habits went yesterday and any streaks worth naming, then help him set two or three priorities for today (ask for his top one if you don't know it), and one habit nudge. Under ninety seconds. End with one short question.`;
+HE JUST OPENED HIS MORNING BRIEF. Speak first, now. Greet him in one line, then: today's prayers with jama'ah times (lead with the next one), today's calendar (what's fixed, and any clashes with jama'ah times), any important unread email worth his attention (one line each, max three), ONE line on money (balance, anything due or off-pace, or progress to his savings goal; skip numbers he didn't ask for if nothing's notable), how his prayers and habits went yesterday and any streaks worth naming, then help him set two or three priorities for today (ask for his top one if you don't know it), and one habit nudge. Under ninety seconds. End with one short question.`;
   if (ctx.debrief) p += `\n\nHE OPENED A MEETING DEBRIEF for "${ctx.debrief.summary}" (${ctx.debrief.when}). Speak first: one line to open, then a quick debrief, one question at a time: how it went, what was decided, what he owes and by when, anything that worried him. ${ctx.debrief.notes ? 'You already have the meeting notes below; confirm the key points with him rather than asking from scratch. Notes: ' + ctx.debrief.notes : ''} Keep it to about two minutes. When done, call save_debrief with event_id "${ctx.debrief.id}" and a tight summary (decisions, his follow-ups with dates).`;
   if (mode === 'onboarding') {
     p += `
@@ -69,6 +70,13 @@ function lifeBlock(L, ctx) {
     if (ctx.recentNotes && ctx.recentNotes.length) lines.push('Recent meeting notes: ' + ctx.recentNotes.map(n => n.summary).join(' | ').slice(0, 3000));
   } else if (gg.status === 'expired') lines.push('Google access has EXPIRED. If he asks for calendar or email, tell him to tap Reconnect Google on the home screen.');
   else lines.push("Google Workspace is not connected yet. If he asks about calendar/email/Drive, or at a natural moment, offer to connect it and call connect_google.");
+  const mo = ctx.money;
+  if (mo && mo.balances) {
+    lines.push(`Money (read-only, as of ${mo.as_of ? new Date(mo.as_of).toLocaleString('en-GB', { timeZone: 'Europe/London', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'unknown'}): total ${M.gbp(mo.balances.total)}` + (mo.balances.main ? `, main account ${M.gbp(mo.balances.main.balance)}` : '') + `. This month: spent ${M.gbp(mo.this_month.spent)} (usual by now about ${M.gbp(mo.this_month.usual_spend_to_date)}), income ${M.gbp(mo.this_month.income)}. Usual month: income ${M.gbp(mo.usual.monthly_income)}, spend ${M.gbp(mo.usual.monthly_spend)}.`);
+    if (mo.upcoming && mo.upcoming.length) lines.push('Bills due in the next 14 days: ' + mo.upcoming.slice(0, 6).map(u => `${u.name} ${M.gbp(u.amount)} on ${u.due}`).join('; ') + '.');
+    if (mo.insights && mo.insights.length) lines.push('Money insights: ' + mo.insights.slice(0, 4).map(i => `[${i.level}] ${i.text}`).join(' '));
+    if (mo.goal) lines.push(`Savings goal: ${mo.goal.label}: ${mo.goal.amount ? M.gbp(+mo.goal.amount) : M.gbp(+mo.goal.monthly) + ' a month'}${mo.goal.by ? ' by ' + mo.goal.by : ''}.`);
+  } else if (ctx.moneyConfigured) lines.push('Bank data is connected but the first sync has not finished yet.');
   return `
 
 TODAY'S LIFE ENGINE (live data, UK time):
@@ -88,7 +96,16 @@ GOOGLE WORKSPACE RULES (his JSE work account):
 - Email: search_email, summarise_unread and read_email to read. draft_email only creates a Gmail draft and shows it on screen; you can NEVER send email. Tell him it's in his drafts to review and send himself.
 - Drive: search_drive and read_doc to find and read documents. Quote sparingly; summarise.
 - Meetings: while he's in a meeting you stay quiet. After meetings, you may offer a short debrief (save it with save_debrief).
-- Never read out private email content during private mode or a meeting.`;
+- Never read out private email content during private mode or a meeting.
+
+MONEY RULES (his bank, read-only via Lunch Flow; Monzo now, more banks later):
+- You can only READ. You cannot move money, pay anyone or cancel anything; if he asks, tell him how to do it himself.
+- Use get_balances, spending_summary and list_subscriptions for facts. Never guess numbers; if a tool fails, say so.
+- For "what if", "can I afford", "how long until", or "how do I save more", call simulate. Translate his words into the scenario (e.g. "cut takeaways by half" = cuts [{category: Takeaways, percent: 50}]; "can I afford a £600 laptop next month" = purchase_amount 600, purchase_month 1). Lead with the plain answer: the chance he never dips below £0, then expected savings, then the single best move from best_path. Round numbers; one or two sentences unless he asks for more. Call it "running the futures" if you like, but no theatrics.
+- His goals: never be broke, and save more. When he names a target, call set_savings_goal (no upper limit). Be honest if the odds are poor and suggest the smallest change that fixes them.
+- Spending categories: Groceries, Eating out, Takeaways, Transport, Fuel, Shopping, Bills, Subscriptions, Housing, Health, Family, People, Charity, Entertainment, Travel, Personal care, Education, Fees, Cash, Business, Other.
+- Money is private: never read balances aloud during private mode or a meeting; keep it to "I'll tell you later". No lectures; one nudge at most, and celebrate wins (including sadaqah).
+- If bank access is due for renewal or broken, tell him to open Lunch Flow and reconnect (a minute's job).`;
 }
 
 const OBJ = (properties, required) => ({ type: 'OBJECT', properties, required });
@@ -122,6 +139,12 @@ const LIFE_TOOLS = [
   { name: 'search_drive', description: 'Search his Google Drive.', parameters: OBJ({ query: STR('Words to search for') }, ['query']) },
   { name: 'read_doc', description: 'Read a Drive file (Docs, Sheets, Slides, text) by id.', parameters: OBJ({ id: STR('File id') }, ['id']) },
   { name: 'save_debrief', description: 'Save a meeting debrief to memory and mark it done.', parameters: OBJ({ event_id: STR('Event id'), summary: STR('Decisions and his follow-ups with dates') }, ['summary']) },
+  { name: 'get_balances', description: 'His current bank balances, bills due soon and bank-access renewal dates.', parameters: OBJ({}, []) },
+  { name: 'spending_summary', description: 'Spending for a period, by category and top merchants.', parameters: OBJ({ period: { type: 'STRING', enum: ['this_week', 'last_7_days', 'this_month', 'last_month', 'last_30_days', 'last_3_months', 'this_year'], description: 'Or YYYY-MM' }, category: STR('Optional category, e.g. Takeaways') }, []) },
+  { name: 'list_subscriptions', description: 'Recurring bills and subscriptions detected from his transactions, with next due dates.', parameters: OBJ({}, []) },
+  { name: 'simulate', description: 'Run 10,000 Monte Carlo futures of his balance from his real income and spending. Returns chance of never going below £0, expected savings, the range, and the best path to save more.', parameters: OBJ({ months: { type: 'INTEGER', description: '3, 6, 12 or 24 (default 6)' }, cuts: { type: 'ARRAY', items: OBJ({ category: STR('Spending category'), percent: { type: 'NUMBER', description: 'Percent to cut, 0-100' } }, ['category', 'percent']) }, cancel: { type: 'ARRAY', items: { type: 'STRING' }, description: 'Merchant names of subscriptions/bills to drop' }, purchase_amount: { type: 'NUMBER', description: 'One-off purchase in £ (can I afford X)' }, purchase_month: { type: 'INTEGER', description: '0 = this month, 1 = next month...' }, monthly_change: { type: 'NUMBER', description: '£ per month: negative for a new cost (e.g. -50 gym), positive for extra income' }, income_change_pct: { type: 'NUMBER', description: 'Percent change to income, e.g. 10 for a raise' }, goal: { type: 'NUMBER', description: 'Savings amount to test against, £' }, label: STR('Short name for the scenario') }, []) },
+  { name: 'set_savings_goal', description: 'Set his savings goal (no upper limit). Returns the odds of hitting it.', parameters: OBJ({ amount: { type: 'NUMBER', description: 'Total £ to save' }, monthly: { type: 'NUMBER', description: 'Or £ per month' }, by: STR('Target date YYYY-MM-DD (optional)'), label: STR('e.g. Emergency fund, Hajj, House deposit') }, []) },
+  { name: 'show_money', description: 'Open the money view on his screen.', parameters: OBJ({}, []) },
   { name: 'enable_notifications', description: 'Show him the button to switch on phone notifications.', parameters: OBJ({ reason: STR('Short reason') }, []) }
 ];
 
@@ -134,7 +157,8 @@ async function loadContext() {
       db('onboarding_answers?select=topic,question,answer&order=created_at.asc&limit=200')
     ]);
     const [life, subs] = await Promise.all([lifeState().catch(() => null), db('push_subscriptions?select=endpoint').catch(() => [])]);
-    const ctx = { memory: true, profile, memories, answers, life, pushOn: subs.length > 0 };
+    const ctx = { memory: true, profile, memories, answers, life, pushOn: subs.length > 0, moneyConfigured: M.configured() };
+    try { const md = await M.load(); if (md.accounts.length) { ctx.money = M.analyse(md); delete ctx.money.months; delete ctx.money.recurring; } } catch (e) {}
     if (life && life.google && life.google.connected) {
       const now = new Date().toISOString();
       const [cal, deb, notes] = await Promise.all([

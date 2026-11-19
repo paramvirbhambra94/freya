@@ -149,6 +149,12 @@ async function handleTool(f) {
     if (f.name === 'search_drive') { const r = await post('/api/google/drive_search', { q: a.query }); return r.ok ? JSON.stringify(r.files) : (r.error || 'unavailable'); }
     if (f.name === 'read_doc') { const r = await post('/api/google/drive_read', { id: a.id }); return r.ok ? JSON.stringify(r) : (r.error || 'unavailable'); }
     if (f.name === 'save_debrief') { const r = await post('/api/google/debrief_done', { event_id: a.event_id, summary: a.summary }); if (r.ok) toast('Debrief saved'); return r.ok ? 'saved' : 'failed'; }
+    if (f.name === 'get_balances') { const r = await getJ('/api/money/balances'); return r.ok ? JSON.stringify(r) : (r.error || 'unavailable'); }
+    if (f.name === 'spending_summary') { const r = await getJ('/api/money/spending?period=' + encodeURIComponent(a.period || 'this_month') + (a.category ? '&category=' + encodeURIComponent(a.category) : '')); return r.ok ? JSON.stringify(r) : (r.error || 'unavailable'); }
+    if (f.name === 'list_subscriptions') { const r = await getJ('/api/money/subscriptions'); return r.ok ? JSON.stringify(r) : (r.error || 'unavailable'); }
+    if (f.name === 'simulate') { const r = await post('/api/money/simulate', a); if (r.ok) toast(`Ran ${(r.runs || 10000).toLocaleString('en-GB')} futures`); return r.ok ? JSON.stringify(r) : (r.error || 'unavailable'); }
+    if (f.name === 'set_savings_goal') { const r = await post('/api/money/goal', a); if (r.ok) toast('Savings goal set'); return r.ok ? JSON.stringify(r) : (r.error || 'failed'); }
+    if (f.name === 'show_money') { openMoney(); return 'The money view is on his screen.'; }
     if (f.name === 'enable_notifications') { showNotifyChip(true); return 'The button is on his screen now; ask him to tap it.'; }
     if (f.name === 'finish_onboarding') {
       const plan = { headline: a.headline, sections: a.sections || [], pledge: a.pledge };
@@ -460,6 +466,8 @@ function renderLife() {
   }).join('');
   if (!active) setStatus(pv.on && pv.auto && !pv.manualUntil ? `Salah time. I'll be here after ${cap(pv.auto.prayer)}.` : pv.on && pv.meeting && !pv.manualUntil ? `You're in "${pv.meeting.summary}". I'll keep quiet.` : idleMsg);
   showGoogleChip(false);
+  $('mbtn').hidden = onboardingState.status !== 'complete';
+  if (moneyPending && onboardingState.status === 'complete') { moneyPending = false; history.replaceState(null, '', '/'); openMoney(); }
 }
 function minutesUntil(hm, day) {
   const [h, m] = hm.split(':').map(Number);
@@ -553,3 +561,28 @@ $('card').addEventListener('click', async e => {
   if (c === 'cancel') { pendingAction = null; hideCard(); if (ws && ws.readyState === 1) ws.send(JSON.stringify({ realtimeInput: { text: '(Cue: he tapped Cancel on the card. Nothing was written.)' } })); return; }
   if (c === 'ok') { const res = await runPending(); if (ws && ws.readyState === 1) ws.send(JSON.stringify({ realtimeInput: { text: '(Cue: he tapped Confirm. Result: ' + res + ' Acknowledge in a few words.)' } })); }
 });
+
+
+// ================= Money (read-only) =================
+var moneyPending = new URLSearchParams(location.search).has('money');
+const gb = n => (n < 0 ? '-£' : '£') + Math.abs(+n || 0).toLocaleString('en-GB', { maximumFractionDigits: Math.abs(n) < 100 ? 2 : 0, minimumFractionDigits: Math.abs(n) < 100 && n % 1 ? 2 : 0 });
+async function openMoney() {
+  $('money').hidden = false; $('mbody').innerHTML = '<p class="hint">Loading…</p>';
+  const r = await getJ('/api/money/summary');
+  if (!r.ok || r.empty) { $('mbody').innerHTML = `<p class="hint">${esc(r.error || 'Money is not available right now.')}</p>`; return; }
+  const b = r.balances, m = r.this_month, top = (r.insights || [])[0];
+  const max = Math.max(1, ...m.by_category.map(c => Math.max(c.spent, c.usual)));
+  const asOf = r.as_of ? new Date(r.as_of).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '';
+  $('mbody').innerHTML = `
+    <div><div class="mtotal">${gb(b.total)}</div><div class="msub">Across ${b.accounts.length} account${b.accounts.length === 1 ? '' : 's'}${asOf ? ' · updated ' + esc(asOf) : ''}</div></div>
+    ${top ? `<div class="minsight ${top.level}">${esc(top.text)}</div>` : '<div class="minsight">Nothing needs your attention. Keep going.</div>'}
+    <div>${b.accounts.map(a => `<div class="macc"><span>${esc(a.name)} <span class="msub">${esc(a.type)}</span></span><span>${gb(a.balance)}</span></div>`).join('')}</div>
+    <div><h3>This month · ${gb(m.spent)} spent</h3><p class="msub" style="margin:4px 0 8px">Line marks your usual for a full month. Income so far ${gb(m.income)}.</p>
+      ${m.by_category.slice(0, 9).map(c => `<div class="mcat"><span>${esc(c.category)}</span><div class="mbar"><i style="width:${(c.spent / max * 100).toFixed(1)}%"></i>${c.usual ? `<b style="left:${Math.min(99, c.usual / max * 100).toFixed(1)}%"></b>` : ''}</div><span>${gb(c.spent)}</span></div>`).join('') || '<p class="hint">No spending yet this month.</p>'}</div>
+    ${r.upcoming && r.upcoming.length ? `<div><h3>Due soon</h3><div class="mlist">${r.upcoming.slice(0, 6).map(u => `<div><span>${esc(u.name)} · ${esc(new Date(u.due + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }))}</span><span>${gb(u.amount)}</span></div>`).join('')}</div></div>` : ''}
+    ${(r.insights || []).length > 1 ? `<div><h3>Also</h3><div class="mlist">${r.insights.slice(1, 5).map(i => `<div><span>${esc(i.text)}</span></div>`).join('')}</div></div>` : ''}
+    ${r.goal ? `<div><h3>Goal</h3><div class="mlist"><div><span>${esc(r.goal.label)}${r.goal.by ? ' · by ' + esc(r.goal.by) : ''}</span><span>${r.goal.amount ? gb(r.goal.amount) : gb(r.goal.monthly) + '/mo'}</span></div></div></div>` : ''}
+    <p class="msub">Ask Freya "what if…" to run 10,000 futures. Read-only: she can't move money.</p>`;
+}
+$('mbtn').addEventListener('click', openMoney);
+$('mclose').addEventListener('click', () => { $('money').hidden = true; });

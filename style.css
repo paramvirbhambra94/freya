@@ -90,3 +90,23 @@ body.private #bg{opacity:.4}
 #card p{font-size:14px;line-height:1.5;opacity:.85}
 #card pre{white-space:pre-wrap;font:inherit;font-size:13px;max-height:30vh;overflow:auto;background:rgba(0,0,0,.25);padding:10px;border-radius:8px}
 a.btn{display:inline-block;text-decoration:none;border-radius:22px;padding:11px 18px;background:var(--gold);color:#1a1006;font-weight:600}
+
+#mbtn{position:fixed;left:14px;bottom:calc(12px + env(safe-area-inset-bottom));width:40px;height:40px;padding:0;border-radius:50%;background:rgba(40,26,10,.7);border:1px solid rgba(232,180,90,.35);color:var(--gold);font-size:17px;font-weight:500;z-index:5}
+#mbtn[hidden],#money[hidden]{display:none}
+#money{position:fixed;inset:0;z-index:18;background:rgba(11,8,5,.97);overflow-y:auto;-webkit-overflow-scrolling:touch}
+.money-inner{max-width:460px;margin:0 auto;padding:calc(18px + env(safe-area-inset-top)) 20px calc(30px + env(safe-area-inset-bottom));display:grid;gap:18px}
+.mhead{display:flex;justify-content:space-between;align-items:center}
+.mtotal{font-size:38px;font-weight:300;color:#f6e3bd;letter-spacing:.02em}
+.msub{font-size:13px;opacity:.6}
+.macc{display:flex;justify-content:space-between;font-size:14px;padding:8px 0;border-bottom:1px solid rgba(232,180,90,.1)}
+.macc span:last-child{color:#f6e3bd}
+.minsight{border:1px solid rgba(232,180,90,.3);border-radius:14px;padding:14px;font-size:14px;line-height:1.5;background:rgba(40,26,10,.4)}
+.minsight.high{border-color:rgba(230,120,80,.6)}
+.mcat{display:grid;grid-template-columns:110px 1fr 70px;gap:10px;align-items:center;font-size:13px;margin:7px 0}
+.mbar{height:6px;border-radius:3px;background:rgba(232,180,90,.12);position:relative;overflow:hidden}
+.mbar i{position:absolute;left:0;top:0;bottom:0;background:linear-gradient(90deg,#a8641c,var(--gold));border-radius:3px}
+.mbar b{position:absolute;top:-2px;bottom:-2px;width:2px;background:rgba(246,227,189,.55)}
+.mcat span:last-child{text-align:right;color:#f6e3bd}
+#money h3{font-weight:400;font-size:13px;letter-spacing:.12em;text-transform:uppercase;color:var(--gold);opacity:.85}
+.mlist{font-size:13px;display:grid;gap:6px;opacity:.85}
+.mlist div{display:flex;justify-content:space-between}

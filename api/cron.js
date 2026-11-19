@@ -4,6 +4,7 @@ const { db, configured, getSecret } = require('./_db');
 const { lifeState, sendPush, DONE } = require('./_life');
 const { toMin, NAMES } = require('./_prayer');
 const G = require('./_google');
+const M = require('./_money');
 const label = n => n[0].toUpperCase() + n.slice(1);
 
 async function claim(key) {
@@ -57,8 +58,11 @@ module.exports = async (req, res) => {
       try { await G.syncCalendar(); meet.push('calendar'); } catch (e) { meet.push('calendar_failed'); }
       try { meet.push(...await afterMeetings(s)); } catch (e) { meet.push('meetings_failed'); }
     }
+    // Money: Lunch Flow sync at most every 6 hours (sync() decides).
+    let money = null;
+    if (M.configured()) { try { money = await M.sync(); } catch (e) { money = { error: 'sync_failed' }; } }
     const subs = await db('push_subscriptions?select=endpoint');
-    if (!subs.length || !s.schedule) return res.status(200).json({ ok: true, google: meet, skipped: !subs.length ? 'no subscriptions' : 'no schedule' });
+    if (!subs.length || !s.schedule) return res.status(200).json({ ok: true, google: meet, money, skipped: !subs.length ? 'no subscriptions' : 'no schedule' });
     const now = s.schedule.now, today = s.schedule.today, manual = !!s.private.manualUntil;
     const prayerHabit = n => s.habits.find(h => h.kind === 'prayer' && h.name.toLowerCase() === n);
     const send = async (key, msg) => { if (await claim(key)) { const n = await sendPush(msg); if (!n) await unclaim(key); else out.push(key); } };
@@ -90,6 +94,22 @@ module.exports = async (req, res) => {
       await send(`debrief:${ev.id}`, { title: ev.summary, body: ev.notes ? 'Meeting notes saved. Want a quick debrief?' : 'How did it go? Tap for a two-minute debrief.', priority: 'low', url: `/?debrief=${encodeURIComponent(ev.id)}`, tag: 'debrief' });
       if (out.includes(`debrief:${ev.id}`)) await db(`calendar_events?id=eq.${encodeURIComponent(ev.id)}`, { method: 'PATCH', body: { debrief_status: 'offered' } });
     }
-    return res.status(200).json({ ok: true, sent: out, google: meet });
+    // Money alerts: checked every 30 minutes. High: low balance / bill risk / reconnect / consent renewal. Low: Sunday-evening weekly summary.
+    if (M.configured() && (now.min % 30 < 5 || (money && money.new_tx != null))) {
+      try {
+        const d = await M.load(), a = M.analyse(d);
+        const daytime = now.min >= 8 * 60 && now.min < 21 * 60; // never buzz him about money at night
+        if (d.accounts.length && !s.private.on && daytime) {
+          const bucket = k => k === 'low_balance' ? 'b' + Math.floor(Date.parse(now.date) / (3 * 864e5)) : now.date; // low balance: at most every 3 days
+          for (const i of a.insights.filter(i => i.level === 'high')) await send(`money:${i.kind}:${bucket(i.kind)}`, { title: i.kind === 'reconnect' ? 'Bank link needs you' : 'Money heads-up', body: i.text, priority: 'high', url: '/?money=1', tag: 'money-' + i.kind });
+          for (const r of a.renewals) if (r.status === 'ACTIVE' && r.days_left != null && r.days_left <= 7) await send(`money:renew:${r.connection_id}:${r.renew_by}:${r.days_left <= 1 ? 'last' : 'week'}`, { title: 'Renew bank access', body: `${r.institution} access in Lunch Flow runs out around ${r.renew_by}. Open Lunch Flow and tap reconnect (takes a minute).`, priority: 'high', url: '/?money=1', tag: 'money-renew' });
+          if (now.weekday === 'Sun' && now.min >= 18 * 60) {
+            const w = M.spending(d, 'last_7_days'), top = w.by_category[0];
+            await send(`money:week:${now.date}`, { title: 'Your week in money', body: `${M.gbp(w.total_spent)} spent this week${top ? `, most on ${top.category.toLowerCase()} (${M.gbp(top.spent)})` : ''}. Tap for the full picture.`, priority: 'low', url: '/?money=1', tag: 'money-week' });
+          }
+        }
+      } catch (e) { out.push('money_alerts_failed'); }
+    }
+    return res.status(200).json({ ok: true, sent: out, google: meet, money });
   } catch (e) { return res.status(500).json({ error: 'cron failed' }); }
 };
