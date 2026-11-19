@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#0b0805">
+<meta name="color-scheme" content="dark">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>F.R.E.Y.A.</title>
 <link rel="manifest" href="/manifest.webmanifest">
@@ -14,24 +15,24 @@
   *{box-sizing:border-box;margin:0;padding:0}
   html,body{height:100%;background:radial-gradient(ellipse at 50% 40%,#2a1a08 0%,var(--bg) 70%);color:#f3e6cf;font-family:-apple-system,Segoe UI,Roboto,sans-serif;overflow:hidden}
   main{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:40px;padding:24px}
-  .orb{width:190px;height:190px;border-radius:50%;background:radial-gradient(circle at 40% 35%,#fff2d0 0%,var(--gold) 30%,#a8641c 65%,#3b1f06 100%);box-shadow:0 0 60px 10px rgba(232,180,90,.45),0 0 140px 40px rgba(232,180,90,.15);animation:breathe 5s ease-in-out infinite}
+  .orb{width:190px;height:190px;border-radius:50%;background:radial-gradient(circle at 40% 35%,#fff2d0 0%,var(--gold) 30%,#a8641c 65%,#3b1f06 100%);box-shadow:0 0 60px 10px rgba(232,180,90,.45),0 0 140px 40px rgba(232,180,90,.15);animation:breathe 5s ease-in-out infinite;cursor:pointer;-webkit-tap-highlight-color:transparent;transition:box-shadow .15s,filter .3s;user-select:none}
+  .orb[data-state=connecting]{animation:breathe 1.4s ease-in-out infinite;filter:brightness(.85)}
+  .orb[data-state=listening]{animation:listen 2.6s ease-in-out infinite;box-shadow:0 0 70px 14px rgba(232,180,90,.55),0 0 160px 50px rgba(232,180,90,.2)}
+  .orb[data-state=speaking]{animation:none;transform:scale(calc(1.02 + var(--lvl,0)*.14));filter:brightness(calc(1.05 + var(--lvl,0)*.45));box-shadow:0 0 calc(60px + var(--lvl,0)*80px) calc(12px + var(--lvl,0)*24px) rgba(255,200,110,.6),0 0 180px 60px rgba(232,180,90,.22)}
+  @keyframes listen{0%,100%{transform:scale(1.02)}50%{transform:scale(1.045)}}
   @keyframes breathe{0%,100%{transform:scale(1);filter:brightness(.95)}50%{transform:scale(1.06);filter:brightness(1.1)}}
   h1{font-weight:300;letter-spacing:.5em;font-size:22px;margin-right:-.5em;color:var(--gold)}
-  p{font-size:13px;letter-spacing:.08em;opacity:.65;text-align:center}
+  p{min-height:2.6em;max-width:300px;font-size:13px;letter-spacing:.08em;opacity:.65;text-align:center}
 </style>
 </head>
 <body>
 <main>
-  <div class="orb" aria-hidden="true"></div>
+  <div class="orb" id="orb" role="button" aria-label="Talk to FREYA" data-state="idle"></div>
   <div style="text-align:center;display:grid;gap:12px">
     <h1>F.R.E.Y.A.</h1>
-    <p id="greet">Standing by.</p>
+    <p id="status" aria-live="polite">Standing by.</p>
   </div>
 </main>
-<script>
-  const h=new Date().getHours();
-  document.getElementById('greet').textContent=(h<12?'Good morning':h<18?'Good afternoon':'Good evening')+', Eesah. Standing by.';
-  if('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js');
-</script>
+<script src="/app.js"></script>
 </body>
 </html>
