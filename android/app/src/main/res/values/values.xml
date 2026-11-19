@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <string name="app_name">FREYA</string>
+  <color name="bg">#0B0805</color>
+  <color name="gold">#E8B45A</color>
+  <style name="Theme.Freya" parent="@android:style/Theme.DeviceDefault.NoActionBar">
+    <item name="android:windowBackground">@color/bg</item>
+    <item name="android:colorBackground">@color/bg</item>
+    <item name="android:colorAccent">@color/gold</item>
+    <item name="android:statusBarColor">@color/bg</item>
+    <item name="android:navigationBarColor">@color/bg</item>
+    <item name="android:windowLightStatusBar">false</item>
+  </style>
+  <string name="asset_statements" translatable="false">[{\"include\": \"https://freya-black.vercel.app/.well-known/assetlinks.json\"}]</string>
+</resources>

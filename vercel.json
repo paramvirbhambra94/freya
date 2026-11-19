@@ -17,6 +17,15 @@
           "value": "no-cache"
         }
       ]
+    },
+    {
+      "source": "/.well-known/assetlinks.json",
+      "headers": [
+        {
+          "key": "Content-Type",
+          "value": "application/json"
+        }
+      ]
     }
   ],
   "rewrites": [
@@ -27,6 +36,18 @@
     {
       "source": "/terms",
       "destination": "/terms.html"
+    }
+  ],
+  "redirects": [
+    {
+      "source": "/app",
+      "destination": "https://github.com/paramvirbhambra94/freya/releases/latest/download/freya.apk",
+      "permanent": false
+    },
+    {
+      "source": "/freya.apk",
+      "destination": "https://github.com/paramvirbhambra94/freya/releases/latest/download/freya.apk",
+      "permanent": false
     }
   ]
 }

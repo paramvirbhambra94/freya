@@ -110,3 +110,5 @@ a.btn{display:inline-block;text-decoration:none;border-radius:22px;padding:11px 
 #money h3{font-weight:400;font-size:13px;letter-spacing:.12em;text-transform:uppercase;color:var(--gold);opacity:.85}
 .mlist{font-size:13px;display:grid;gap:6px;opacity:.85}
 .mlist div{display:flex;justify-content:space-between}
+#appbtn{position:fixed;right:14px;top:calc(12px + env(safe-area-inset-top));width:36px;height:36px;padding:0;border-radius:50%;background:rgba(40,26,10,.6);border:1px solid rgba(232,180,90,.3);color:var(--gold);font-size:16px;font-weight:400;z-index:5}
+#appbtn[hidden]{display:none}

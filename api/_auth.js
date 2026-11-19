@@ -3,7 +3,8 @@ const crypto = require('crypto');
 const { getSecret, configured } = require('./_db');
 
 const RP_ID = 'freya-black.vercel.app';
-const ORIGINS = ['https://freya-black.vercel.app', 'https://freya-paramvirbhambra94-6690s-projects.vercel.app'];
+// The Android app (signed with the FREYA release key) may present its own origin for passkeys.
+const ORIGINS = ['https://freya-black.vercel.app', 'https://freya-paramvirbhambra94-6690s-projects.vercel.app', 'android:apk-key-hash:zuwYaInJFaFgMILw_KXNjUW19lCzi9azkc_nbcc_lt0'];
 const SESSION_DAYS = 180;
 
 const b64u = b => Buffer.from(b).toString('base64url');

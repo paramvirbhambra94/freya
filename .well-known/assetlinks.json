@@ -1,0 +1,15 @@
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls",
+      "delegate_permission/common.get_login_creds"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "app.freya.android",
+      "sha256_cert_fingerprints": [
+        "CE:EC:18:68:89:C9:15:A1:60:30:82:F0:FC:A5:CD:8D:45:B5:F6:50:B3:8B:D6:B3:91:CF:E7:6D:C7:3F:96:DD"
+      ]
+    }
+  }
+]

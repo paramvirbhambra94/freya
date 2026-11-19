@@ -18,6 +18,9 @@ let nextTime = 0, sources = new Set(), active = false, connecting = false, model
 let briefPending = new URLSearchParams(location.search).has('brief');
 let debriefPending = new URLSearchParams(location.search).get('debrief');
 let pendingAction = null;
+// Android shell (FREYA app): native bridge for alarms + wake word. Absent in a normal browser.
+const APP = (() => { try { return !!(window.FreyaAndroid && window.FreyaAndroid.isApp()); } catch (e) { return false; } })();
+let wakePending = APP && new URLSearchParams(location.search).has('wake');
 let micLevel = 0, outLevel = 0, retries = 0, finishing = null, onboardingState = { configured: false, status: null, plan: null };
 
 // ---------- captions & toast ----------
@@ -136,6 +139,7 @@ async function handleTool(f) {
       try { const loc = await here(); const r = await post('/api/prayers', { action: 'travel', ...loc }); loadLife(); toast('Travelling · local times'); return r.ok ? 'using calculated times for his location' : 'failed'; }
       catch (e) { return 'Location is blocked; could not switch to travel times.'; }
     }
+    if (f.name === 'set_alarm' || f.name === 'list_alarms' || f.name === 'cancel_alarm') return alarmTool(f.name, a);
     if (f.name === 'connect_google') { showGoogleChip(true); return 'The Connect Google button is on his screen; ask him to tap it and sign in with his JSE account.'; }
     if (f.name === 'get_calendar') { const r = await getJ('/api/google/calendar?range=' + encodeURIComponent(a.range || 'today')); return r.ok ? JSON.stringify(r.events) : (r.error || 'unavailable'); }
     if (f.name === 'find_free_time') { const r = await post('/api/google/free', a); return r.ok ? JSON.stringify(r.free) : (r.error || 'unavailable'); }
@@ -165,6 +169,26 @@ async function handleTool(f) {
     }
   } catch (e) { return 'error'; }
   return 'unknown tool';
+}
+function alarmTool(name, a) {
+  if (!APP) return 'Alarms need the FREYA Android app (this is a plain browser). Tell him to install it from freya-black.vercel.app/app on his Samsung.';
+  const when = t => new Date(t).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+  if (name === 'list_alarms') { const l = JSON.parse(FreyaAndroid.listAlarms() || '[]'); return l.length ? JSON.stringify(l.map(x => ({ id: x.id, when: when(x.at), label: x.label }))) : 'No alarms set.'; }
+  if (name === 'cancel_alarm') { const r = JSON.parse(FreyaAndroid.cancelAlarm(String(a.id || 'all'))); if (r.ok) toast('Alarm cancelled'); return r.ok ? 'Cancelled ' + r.cancelled + ' alarm(s).' : 'No matching alarm.'; }
+  let at = null;
+  if (a.in_minutes) at = Date.now() + Number(a.in_minutes) * 60000;
+  else if (a.time && /^\d{1,2}:\d{2}$/.test(a.time)) {
+    const [H, M] = a.time.split(':').map(Number);
+    const d = a.date ? new Date(a.date + 'T00:00') : new Date();
+    d.setHours(H, M, 0, 0);
+    if (!a.date && d.getTime() <= Date.now()) d.setDate(d.getDate() + 1);
+    at = d.getTime();
+  }
+  if (!at || isNaN(at)) return 'I need a time (HH:MM) or minutes from now.';
+  if (at <= Date.now()) return 'That time has already passed.';
+  const r = JSON.parse(FreyaAndroid.setAlarm(at, a.label || 'Alarm'));
+  if (r.ok) toast('⏰ ' + when(at) + (a.label ? ' · ' + a.label : ''));
+  return r.ok ? 'Alarm set for ' + when(at) + ' (id ' + r.id + ').' + (r.exact ? '' : ' Exact alarms are off in his phone settings, so it may be a few minutes late.') : (r.error || 'Could not set the alarm.');
 }
 let turnDone = false;
 function checkFinish() {
@@ -264,6 +288,7 @@ async function start() {
     await connect(false);
     connecting = false;
     $('textbar').hidden = false; $('redo').hidden = true;
+    if (APP) try { FreyaAndroid.sessionActive(true); } catch (e) {}
     setState('listening');
     setStatus(micOk ? (mode === 'onboarding' ? 'Setting you up · listening…' : 'Listening…') : 'Mic is off. Type to talk to her below.');
   } catch (e) {
@@ -273,6 +298,7 @@ async function start() {
 
 function stop(msg) {
   active = false; setBusy(false);
+  if (APP) try { FreyaAndroid.sessionActive(false); } catch (e) {}
   const s = ws; ws = null; try { s && s.close(1000); } catch (e) {}
   try { micNode && micNode.disconnect(); } catch (e) {} micNode = null;
   micStream && micStream.getTracks().forEach(t => t.stop()); micStream = null;
@@ -424,7 +450,15 @@ async function unlock() {
     authed = true; unlocked();
   } catch (e) { err.textContent = e.name === 'NotAllowedError' ? 'Cancelled. Tap Unlock to try again.' : (e.message || 'Sign-in failed.'); }
 }
-function unlocked() { $('lock').hidden = true; loadOnboarding(); loadLife(); }
+function unlocked() { $('lock').hidden = true; loadOnboarding(); loadLife(); wakeGo(); }
+// "Freya" wake word (Android app): ?wake=1 or window.freyaWake() starts talking straight away once signed in.
+function wakeGo() {
+  if (!wakePending || !authed) return;
+  wakePending = false;
+  if (location.search) history.replaceState(null, '', '/');
+  if (!active && !connecting) start();
+}
+window.freyaWake = () => { wakePending = true; if (authed) wakeGo(); else { showLock('unlock'); unlock(); } };
 $('btn-enrol').addEventListener('click', () => enrol());
 $('btn-unlock').addEventListener('click', unlock);
 $('btn-saved').addEventListener('click', unlocked);
@@ -435,7 +469,7 @@ $('back-unlock').addEventListener('click', () => lockView('unlock'));
 async function boot() {
   const s = await getJ('/api/auth/status').catch(() => ({ ok: false }));
   if (s.ok && s.authed) { authed = true; return unlocked(); }
-  if (!s.ok) { authed = true; return loadOnboarding(); } // memory not configured: voice-only mode
+  if (!s.ok) { authed = true; loadOnboarding(); return wakeGo(); } // memory not configured: voice-only mode
   showLock(s.enrolled ? 'unlock' : 'enrol');
   if (s.enrolled) unlock(); // one tap: the fingerprint prompt appears straight away
 }
@@ -589,3 +623,6 @@ async function openMoney() {
 }
 $('mbtn').addEventListener('click', openMoney);
 $('mclose').addEventListener('click', () => { $('money').hidden = true; });
+
+// ---------- Android app settings ----------
+if (APP) { const ab = $('appbtn'); if (ab) { ab.hidden = false; ab.addEventListener('click', () => FreyaAndroid.openSettings()); } }

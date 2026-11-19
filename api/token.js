@@ -106,6 +106,10 @@ GOOGLE WORKSPACE RULES (his JSE work account):
 - Meetings: while he's in a meeting you stay quiet. After meetings, you may offer a short debrief (save it with save_debrief).
 - Never read out private email content during private mode or a meeting.
 
+ALARMS (his phone, via the FREYA Android app):
+- set_alarm, list_alarms and cancel_alarm control real alarms that ring loudly even when the phone is locked. For prayer alarms, check get_prayer_times first. Confirm the day and time back in one short sentence.
+- If a tool says alarms need the app, tell him once: install FREYA from freya-black.vercel.app/app on his Samsung.
+
 MONEY RULES (his bank, read-only via Lunch Flow; Monzo now, more banks later):
 - You can only READ. You cannot move money, pay anyone or cancel anything; if he asks, tell him how to do it himself.
 - Use get_balances, spending_summary and list_subscriptions for facts. Never guess numbers; if a tool fails, say so.
@@ -156,6 +160,9 @@ const LIFE_TOOLS = [
   { name: 'explain_patterns', description: 'His spending patterns that you are allowed to talk about (already discussed ones, plus at most one new one to ask him about), forecast accuracy, and whether he is on his best path.', parameters: OBJ({}, []) },
   { name: 'note_pattern', description: 'Record that you raised a spending pattern with him, or his answer to it.', parameters: OBJ({ pattern_id: STR('pattern_id'), status: { type: 'STRING', enum: ['raised', 'confirmed', 'dismissed'] } }, ['pattern_id', 'status']) },
   { name: 'show_money', description: 'Open the money view on his screen.', parameters: OBJ({}, []) },
+  { name: 'set_alarm', description: 'Set a real, loud phone alarm (FREYA Android app). Give time (+ optional date) or in_minutes.', parameters: OBJ({ time: STR('HH:MM 24h UK time'), date: STR('YYYY-MM-DD (optional; default the next time that clock time comes round)'), in_minutes: { type: 'INTEGER', description: 'Minutes from now, for timers' }, label: STR('Short label, e.g. "Fajr" or "Leave for JSE"') }, []) },
+  { name: 'list_alarms', description: 'List the alarms set on his phone.', parameters: OBJ({}, []) },
+  { name: 'cancel_alarm', description: 'Cancel a phone alarm by id (from list_alarms), or "all".', parameters: OBJ({ id: STR('Alarm id or "all"') }, ['id']) },
   { name: 'enable_notifications', description: 'Show him the button to switch on phone notifications.', parameters: OBJ({ reason: STR('Short reason') }, []) }
 ];
 
