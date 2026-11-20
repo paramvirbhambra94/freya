@@ -93,6 +93,7 @@ function ripple(strength) {
   document.documentElement.style.setProperty('--out', outLevel.toFixed(3));
   document.documentElement.style.setProperty('--mic', Math.min(1, micLevel).toFixed(3));
   if (active && !sources.size && micLevel > 0.12 && ts - lastRipple > 380) { lastRipple = ts; ripple(Math.min(1, micLevel)); }
+  else if (sources.size && outLevel > 0.32 && ts - lastRipple > 520) { lastRipple = ts; ripple(Math.min(1, outLevel)); } // her voice ripples the ring
   requestAnimationFrame(loop);
 })(0);
 
@@ -356,6 +357,26 @@ orb.addEventListener('click', () => {
   start();
 });
 orb.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); orb.click(); } });
+// Touch / drag: subtle 3D tilt with parallax between the ring layers. A drag never counts as a tap.
+(() => {
+  const hud = orb.querySelector('.hud'); if (!hud || reduceMotion) return;
+  let down = null, dragged = false;
+  const tilt = e => {
+    const r = orb.getBoundingClientRect(), cl = v => Math.max(-1, Math.min(1, v));
+    const nx = cl(((e.clientX - r.left) / r.width - 0.5) * 2), ny = cl(((e.clientY - r.top) / r.height - 0.5) * 2);
+    hud.style.setProperty('--tx', (nx * 18).toFixed(1) + 'deg'); hud.style.setProperty('--ty', (-ny * 18).toFixed(1) + 'deg');
+  };
+  const rest = () => { down = null; orb.classList.remove('drag'); hud.style.setProperty('--tx', '0deg'); hud.style.setProperty('--ty', '0deg'); };
+  orb.addEventListener('pointerdown', e => { down = { x: e.clientX, y: e.clientY }; dragged = false; orb.classList.add('drag'); tilt(e); try { orb.setPointerCapture(e.pointerId); } catch (x) {} });
+  orb.addEventListener('pointermove', e => {
+    if (!down) { if (e.pointerType === 'mouse') tilt(e); return; }
+    if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > 12) dragged = true;
+    tilt(e);
+  });
+  orb.addEventListener('pointerup', rest); orb.addEventListener('pointercancel', rest);
+  orb.addEventListener('pointerleave', e => { if (!down) rest(); });
+  orb.parentElement.addEventListener('click', e => { if (dragged) { dragged = false; e.stopPropagation(); } }, true);
+})();
 $('textbar').addEventListener('submit', e => {
   e.preventDefault(); const t = $('textin').value.trim(); if (!t || !ws || ws.readyState !== 1) return;
   ws.send(JSON.stringify({ realtimeInput: { text: t } })); caption(himEl, t, false, 7000); newHimTurn = true; $('textin').value = ''; setBusy(true);

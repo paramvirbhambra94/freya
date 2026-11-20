@@ -11,6 +11,10 @@
     <item name="android:statusBarColor">@color/bg</item>
     <item name="android:navigationBarColor">@color/bg</item>
     <item name="android:windowLightStatusBar">false</item>
+    <!-- Android 12+ splash: the HUD ring draws itself in around the F -->
+    <item name="android:windowSplashScreenBackground">@color/bg</item>
+    <item name="android:windowSplashScreenAnimatedIcon">@drawable/splash_anim</item>
+    <item name="android:windowSplashScreenAnimationDuration">1000</item>
   </style>
   <string name="asset_statements" translatable="false">[{\"include\": \"https://freya-black.vercel.app/.well-known/assetlinks.json\"}]</string>
 </resources>

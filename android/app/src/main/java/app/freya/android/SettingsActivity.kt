@@ -8,6 +8,7 @@ import android.content.ComponentName
 import android.app.NotificationManager
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.ColorStateList
 import android.graphics.Color
 import android.net.Uri
 import android.os.Build
@@ -49,7 +50,8 @@ class SettingsActivity : Activity() {
         wakeSwitch = Switch(this).apply {
             text = "Wake word “Freya” (works with the phone locked)"; textSize = 18f; setTextColor(Color.WHITE)
             isChecked = Prefs.wakeEnabled(this@SettingsActivity); setPadding(0, 48, 0, 24)
-            setOnCheckedChangeListener { _, on -> setWake(on) }
+            styleSwitch(this, label = text.toString())
+            setOnCheckedChangeListener { v, on -> paint(v as Switch); setWake(on) }
         }
         list.addView(wakeSwitch)
 
@@ -117,8 +119,26 @@ class SettingsActivity : Activity() {
 
     @SuppressLint("UseSwitchCompatOrMaterialCode")
     private fun switch(label: String, on: Boolean, set: (Boolean) -> Unit) = Switch(this).apply {
-        text = label; textSize = 16f; setTextColor(Color.WHITE); isChecked = on; setPadding(0, 32, 0, 8)
-        setOnCheckedChangeListener { _, v -> set(v) }
+        text = label; textSize = 16f; isChecked = on; setPadding(0, 32, 0, 8)
+        styleSwitch(this, label)
+        setOnCheckedChangeListener { s, v -> paint(s as Switch); set(v) }
+    }
+
+    // ON = bright gold thumb + gold track + gold label "· On"; OFF = dim grey thumb, dark track, grey label "· Off".
+    // Explicit tints so One UI's default (which looks the same both ways on our dark theme) can't hide the state.
+    private val states = arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf())
+    private fun styleSwitch(s: Switch, label: String) {
+        s.tag = label
+        s.thumbTintList = ColorStateList(states, intArrayOf(gold, Color.parseColor("#6E6254")))
+        s.trackTintList = ColorStateList(states, intArrayOf(Color.parseColor("#B3E8B45A"), Color.parseColor("#3A2F24")))
+        s.thumbTintMode = android.graphics.PorterDuff.Mode.SRC_IN
+        s.trackTintMode = android.graphics.PorterDuff.Mode.SRC_IN
+        paint(s)
+    }
+    private fun paint(s: Switch) {
+        val on = s.isChecked
+        s.text = (s.tag as? String ?: s.text.toString()) + if (on) "  · On" else "  · Off"
+        s.setTextColor(if (on) gold else Color.parseColor("#9A8D7C"))
     }
     private fun plain(label: String, go: () -> Unit) {
         list.addView(Button(this).apply {

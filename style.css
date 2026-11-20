@@ -3,22 +3,56 @@
 html,body{height:100%;background:radial-gradient(ellipse at 50% 40%,#2a1a08 0%,var(--bg) 70%);color:#f3e6cf;font-family:-apple-system,Segoe UI,Roboto,sans-serif;overflow:hidden}
 #bg{position:fixed;inset:0;width:100%;height:100%;pointer-events:none}
 main{position:relative;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:36px;padding:24px 24px 90px}
-.stage{position:relative;width:190px;height:190px}
-.orb{position:absolute;inset:0;border-radius:50%;overflow:hidden;background:radial-gradient(circle at 40% 35%,#fff2d0 0%,var(--gold) 30%,#a8641c 65%,#3b1f06 100%);box-shadow:0 0 60px 10px rgba(232,180,90,.45),0 0 140px 40px rgba(232,180,90,.15);animation:breathe 5s ease-in-out infinite;cursor:pointer;-webkit-tap-highlight-color:transparent;user-select:none;outline:none}
-.swirl{position:absolute;inset:-20%;border-radius:50%;background:conic-gradient(from 0deg,rgba(255,240,200,0) 0deg,rgba(255,236,190,.55) 60deg,rgba(255,240,200,0) 140deg,rgba(255,220,150,.35) 220deg,rgba(255,240,200,0) 300deg);mix-blend-mode:screen;opacity:0;animation:spin 6s linear infinite;transition:opacity .4s}
-.orb[data-state=connecting]{animation:breathe 1.4s ease-in-out infinite}
-.orb[data-state=listening]{animation:none;transform:scale(calc(1.02 + var(--mic)*.05));box-shadow:0 0 70px 14px rgba(232,180,90,.5),0 0 160px 50px rgba(232,180,90,.18)}
-.orb[data-state=speaking]{animation:none;transform:scale(calc(1.02 + var(--out)*.12));filter:brightness(calc(1.05 + var(--out)*.5));box-shadow:0 0 calc(60px + var(--out)*90px) calc(12px + var(--out)*26px) rgba(255,200,110,.6),0 0 180px 60px rgba(232,180,90,.22)}
-.orb[data-state=speaking] .swirl{opacity:calc(.35 + var(--out)*.65);animation-duration:4s}
-.orb[data-state=listening] .swirl{opacity:.12}
-@keyframes breathe{0%,100%{transform:scale(1);filter:brightness(.95)}50%{transform:scale(1.06);filter:brightness(1.1)}}
+.stage{position:relative;width:240px;height:240px}
+/* ---- HUD orb: angled F inside the targeting ring. Layers sit at different depths for parallax. ---- */
+.orb{position:absolute;inset:0;cursor:pointer;-webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none;outline:none;touch-action:none;perspective:720px;color:var(--gold)}
+.orb:focus-visible .l-ring svg{filter:drop-shadow(0 0 10px rgba(255,217,143,.9))}
+.hud{position:absolute;inset:0;transform-style:preserve-3d;transform:rotateX(var(--ty,0deg)) rotateY(var(--tx,0deg));transition:transform .6s cubic-bezier(.2,.9,.25,1),opacity .6s}
+.orb.drag .hud{transition:transform .1s linear}
+.halo{position:absolute;inset:12%;border-radius:50%;background:radial-gradient(circle,rgba(232,180,90,.28) 0%,rgba(232,180,90,.08) 45%,rgba(232,180,90,0) 70%);opacity:.6;transform:translateZ(-30px) scale(var(--hk,1));transition:opacity .4s,transform .3s}
+.lyr{position:absolute;inset:0;transform:translateZ(var(--z,0px)) scale(var(--k,1));transition:transform .45s cubic-bezier(.2,.8,.2,1),opacity .4s;pointer-events:none}
+.lyr svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible;fill:none;stroke:currentColor;will-change:transform}
+.l-inner{--z:-16px;opacity:.7}.l-inner svg{stroke-width:1.4;animation:spin 80s linear infinite reverse}
+.l-ring{--z:0px}.l-ring svg{filter:drop-shadow(0 0 5px rgba(232,180,90,.55));animation:spin 56s linear infinite}
+.ring-main{stroke-width:2;opacity:.85}.ring-bold{stroke-width:4.4}
+.l-ticks{--z:10px}.l-ticks svg{stroke-width:5;filter:drop-shadow(0 0 5px rgba(232,180,90,.6));animation:pulse 3.8s ease-in-out infinite}
+.l-f,.l-fglow{--z:30px}
+.f-line{stroke:#F2C06A;stroke-width:2.8;stroke-linejoin:miter;fill:rgba(232,180,90,.07)}
+.l-f svg{filter:drop-shadow(0 0 4px rgba(232,180,90,.7))}
+.f-glow{stroke:#FFD98F;stroke-width:9;stroke-linejoin:miter;fill:rgba(255,217,143,.10)}
+.l-fglow{opacity:.18;filter:blur(7px);animation:fbreathe 5.5s ease-in-out infinite}
+.glare{position:absolute;left:21%;width:56%;top:calc(50% - 1px);height:2px;border-radius:2px;background:linear-gradient(90deg,rgba(255,217,143,0),rgba(255,243,214,.95) 35%,rgba(255,217,143,0));box-shadow:0 0 8px 1px rgba(255,217,143,.45);opacity:.85;animation:glint 6s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:.55}50%{opacity:1}}
+@keyframes fbreathe{0%,100%{opacity:.14}50%{opacity:.32}}
+@keyframes glint{0%,70%,100%{opacity:.7;transform:scaleX(1)}80%{opacity:1;transform:scaleX(1.12)}}
 @keyframes spin{to{transform:rotate(360deg)}}
-#rings{position:absolute;inset:0;pointer-events:none}
-#rings span{position:absolute;inset:0;border-radius:50%;border:1.5px solid rgba(240,195,110,.7);animation:ripple 1.8s ease-out forwards}
-@keyframes ripple{from{transform:scale(1);opacity:var(--a,.6)}to{transform:scale(1.9);opacity:0}}
-.work{position:absolute;inset:-18px;border-radius:50%;border:1px solid rgba(232,180,90,.14);opacity:0;transition:opacity .4s;pointer-events:none}
-.work i{position:absolute;top:-3px;left:50%;width:6px;height:6px;margin-left:-3px;border-radius:50%;background:#ffd98f;box-shadow:0 0 10px 3px rgba(255,200,110,.6)}
-body.busy .work{opacity:1;animation:spin 1.6s linear infinite}
+@keyframes draw{0%{stroke-dasharray:0 1106}60%,100%{stroke-dasharray:1106 0}}
+/* connecting: the ring sweeps round and draws itself, ticks blink in turn */
+.orb[data-state=connecting] .l-ring svg{animation-duration:2.4s}
+.orb[data-state=connecting] .ring-main{animation:draw 1.2s ease-in-out infinite alternate}
+.orb[data-state=connecting] .l-ticks svg{animation:pulse .7s ease-in-out infinite}
+.orb[data-state=connecting] .l-f{opacity:.65}
+/* listening: the reticle locks on - ring and ticks tighten and brighten with his voice */
+.orb[data-state=listening] .lyr,.orb[data-state=speaking] .lyr,.orb[data-state=listening] .halo,.orb[data-state=speaking] .halo{transition:transform .12s linear,opacity .2s}
+.orb[data-state=listening] .l-ring{--k:calc(.95 - var(--mic)*.06)}
+.orb[data-state=listening] .l-ticks{--k:calc(.92 - var(--mic)*.08)}
+.orb[data-state=listening] .l-ticks svg{animation:none;opacity:1}
+.orb[data-state=listening] .l-inner{--k:calc(.96 - var(--mic)*.05);opacity:calc(.75 + var(--mic)*.25)}
+.orb[data-state=listening] .halo{opacity:calc(.6 + var(--mic)*.4);--hk:calc(.95 + var(--mic)*.15)}
+/* speaking: her F glows with her voice and the ring ripples outward */
+.orb[data-state=speaking] .l-fglow{animation:none;opacity:calc(.3 + var(--out)*.7);--k:calc(1 + var(--out)*.08)}
+.orb[data-state=speaking] .l-f{--k:calc(1 + var(--out)*.035)}
+.orb[data-state=speaking] .l-ring{--k:calc(1 + var(--out)*.05)}
+.orb[data-state=speaking] .halo{opacity:calc(.7 + var(--out)*.3);--hk:calc(1 + var(--out)*.3)}
+.orb[data-state=speaking] .glare{animation-duration:2.2s}
+#rings{position:absolute;inset:15.6%;pointer-events:none}
+#rings span{position:absolute;inset:0;border-radius:50%;border:1.5px solid rgba(240,195,110,.7);box-shadow:0 0 10px rgba(232,180,90,.25);animation:ripple 1.8s ease-out forwards}
+@keyframes ripple{from{transform:scale(1);opacity:var(--a,.6)}to{transform:scale(1.7);opacity:0}}
+/* thinking (tools / waiting on her): a fast scanning arc just outside the ring, inner ring speeds up */
+.work{position:absolute;inset:10%;border-radius:50%;border:1.5px solid transparent;border-top-color:rgba(255,217,143,.85);border-right-color:rgba(255,217,143,.25);opacity:0;transition:opacity .4s;pointer-events:none}
+.work i{position:absolute;top:14.6%;left:85.4%;width:5px;height:5px;margin:-2.5px;border-radius:50%;background:#ffd98f;box-shadow:0 0 10px 3px rgba(255,200,110,.6)}
+body.busy .work{opacity:1;animation:spin 1.4s linear infinite}
+body.busy .l-inner svg{animation-duration:3s}
 .info{text-align:center;display:grid;gap:12px;justify-items:center}
 h1{font-weight:300;letter-spacing:.5em;font-size:22px;margin-right:-.5em;color:var(--gold)}
 #status{min-height:1.4em;max-width:300px;font-size:13px;letter-spacing:.08em;opacity:.65}
@@ -55,7 +89,7 @@ textarea,.contact input{width:100%;background:rgba(40,26,10,.6);border:1px solid
 .contact{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:10px 0;border-bottom:1px solid rgba(232,180,90,.12)}
 .contact input:last-child{grid-column:1/-1}
 .err{color:#ff9d7a;font-size:13px;min-height:1em}
-@media (prefers-reduced-motion:reduce){.orb,.swirl,body.busy .work{animation:none!important}#rings span{animation-duration:.01s}}
+@media (prefers-reduced-motion:reduce){.lyr svg,.l-fglow,.glare,.ring-main,body.busy .work,#splash,#splash *{animation:none!important}.hud{transition:none}#rings span{animation-duration:.01s}}
 #top{position:fixed;top:calc(14px + env(safe-area-inset-top));left:0;right:0;display:grid;justify-items:center;gap:10px;z-index:2}
 #top[hidden]{display:none}
 #next{font-size:12px;letter-spacing:.12em;color:#d9c39b;opacity:.75}
@@ -65,7 +99,7 @@ textarea,.contact input{width:100%;background:rgba(40,26,10,.6);border:1px solid
 .dot.done i{background:var(--gold);box-shadow:0 0 8px rgba(232,180,90,.6)}
 .dot.jamaah i{background:#ffe2a6;box-shadow:0 0 12px rgba(255,210,130,.9)}
 .dot.missed i{border-color:rgba(255,157,122,.6);background:rgba(255,157,122,.15)}
-body.private .orb{filter:brightness(.55) saturate(.7);animation-duration:9s}
+body.private .hud{opacity:.5}body.private .l-ring svg{animation-duration:120s}
 body.private #bg{opacity:.4}
 .chip{position:fixed;bottom:calc(46px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);background:rgba(40,26,10,.85);border:1px solid rgba(232,180,90,.5);color:var(--gold);font-weight:500;font-size:13px;padding:9px 16px}
 .chip[hidden]{display:none}
@@ -75,7 +109,8 @@ body.private #bg{opacity:.4}
 .lock-inner{max-width:340px;padding:24px;display:grid;gap:18px;justify-items:center;text-align:center}
 .lock-inner>div{display:grid;gap:14px;justify-items:center}
 .lock-inner p{font-size:14px;opacity:.75;line-height:1.5}
-.orb.mini{position:relative;width:90px;height:90px;cursor:default}
+.mark-img{display:block;width:120px;height:120px;filter:drop-shadow(0 0 18px rgba(232,180,90,.25))}
+.mark-img.sm{width:56px;height:56px;margin-bottom:-4px}
 #rcode{font-size:20px;letter-spacing:.12em;color:var(--gold);padding:12px 16px;border:1px dashed rgba(232,180,90,.5);border-radius:10px;user-select:all}
 #recin{width:100%;background:rgba(40,26,10,.6);border:1px solid rgba(232,180,90,.3);border-radius:10px;padding:12px;color:#f3e6cf;font-size:16px;text-align:center;letter-spacing:.1em}
 .row{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
@@ -118,11 +153,38 @@ a.btn{display:inline-block;text-decoration:none;border-radius:22px;padding:11px 
 #volr[hidden]{display:none}
 /* Android floating panel */
 body.mini main{flex-direction:row;justify-content:flex-start;gap:16px;padding:10px 14px}
-body.mini .stage{width:76px;height:76px;flex:none}
-body.mini .orb{box-shadow:0 0 24px 4px rgba(232,180,90,.4)}
+body.mini .stage{flex:none}
+body.mini .stage{width:84px;height:84px}body.mini .l-inner,body.mini .glare{display:none}
 body.mini .info{text-align:left;justify-items:start;gap:6px}
 body.mini h1,body.mini #bg,body.mini #top,body.mini #mbtn,body.mini #vol,body.mini #appbtn,body.mini #redo,body.mini #notify,body.mini #gchip,body.mini #glink,body.mini #textbar{display:none!important}
 body.mini #captions{min-height:0;max-width:none}
 body.mini #captions .her{font-size:14px}
 html:has(body.mini),body.mini{background:transparent}
 body.app #mbtn{top:calc(56px + env(safe-area-inset-top))} /* stacked under ⚙ in the Android app */
+
+/* ---- HUD details across the app ---- */
+h1{text-shadow:0 0 14px rgba(232,180,90,.35)}
+.info h1::after{content:"";display:block;width:64px;height:1px;margin:10px auto 0;transform:translateX(-.25em);background:linear-gradient(90deg,rgba(232,180,90,0),var(--gold),rgba(232,180,90,0))}
+#next{display:flex;align-items:center;gap:10px}
+#next::before,#next::after{content:"";width:22px;height:1px;background:linear-gradient(90deg,rgba(232,180,90,0),rgba(232,180,90,.7))}
+#next::after{transform:scaleX(-1)}
+.dot i{position:relative}
+.dot i::after{content:"";position:absolute;left:50%;top:-5px;width:1px;height:3px;background:rgba(232,180,90,.5)}
+.kicker{display:flex;align-items:center;gap:10px}
+.kicker::before{content:"";width:18px;height:1px;background:var(--gold);opacity:.7}
+.card,.sheet,.minsight{position:relative}
+.card::before{content:"";position:absolute;left:-1px;top:-1px;width:14px;height:14px;border-left:1.5px solid var(--gold);border-top:1.5px solid var(--gold);border-top-left-radius:14px;opacity:.8}
+#appbtn,#mbtn,#volbtn{box-shadow:0 0 10px rgba(232,180,90,.12) inset}
+.lock-inner h1{margin-top:-6px}
+/* ---- web loading screen: the ring draws itself in around the F ---- */
+#splash{position:fixed;inset:0;z-index:40;display:grid;place-content:center;justify-items:center;gap:22px;background:radial-gradient(ellipse at 50% 42%,#1d1207 0%,var(--bg) 65%);pointer-events:none;animation:sfade .45s ease 1.15s forwards}
+#splash svg{width:150px;height:150px;fill:none;stroke:var(--gold);overflow:visible;filter:drop-shadow(0 0 6px rgba(232,180,90,.55))}
+#splash .s-ring{stroke-width:2.2;stroke-dasharray:1106;stroke-dashoffset:1106;transform:rotate(-90deg);transform-origin:256px 256px;animation:sdraw .8s cubic-bezier(.6,0,.2,1) forwards}
+#splash .s-ticks{stroke-width:5;opacity:0;animation:sin .3s ease .45s forwards}
+#splash .s-bold{stroke-width:4.4;opacity:0;animation:sin .3s ease .6s forwards}
+#splash .s-f{stroke:#F2C06A;stroke-width:2.8;stroke-linejoin:miter;stroke-dasharray:1000;stroke-dashoffset:1000;animation:sdraw .7s ease .25s forwards}
+#splash p{color:var(--gold);letter-spacing:.5em;margin-right:-.5em;font-size:13px;font-weight:300;opacity:0;animation:sin .4s ease .6s forwards}
+@keyframes sdraw{to{stroke-dashoffset:0}}
+@keyframes sin{to{opacity:1}}
+@keyframes sfade{to{opacity:0;visibility:hidden}}
+body.mini #splash{display:none}

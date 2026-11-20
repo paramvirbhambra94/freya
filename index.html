@@ -8,18 +8,30 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>F.R.E.Y.A.</title>
 <link rel="manifest" href="/manifest.webmanifest">
-<link rel="icon" href="/icon-192.png" type="image/png">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="stylesheet" href="/style.css">
 </head>
 <body>
+<div id="splash" aria-hidden="true"><svg viewBox="0 0 512 512"><circle class="s-ring" cx="256" cy="256" r="176"/><path class="s-ticks" d="M256,96L256,66M416,256L446,256M256,416L256,446M96,256L66,256"/><path class="s-bold" d="M359.45,113.61A176,176 0 0 1 403.61,160.14M398.39,359.45A176,176 0 0 1 351.86,403.61M152.55,398.39A176,176 0 0 1 108.39,351.86M113.61,152.55A176,176 0 0 1 160.14,108.39"/><path class="s-f" d="M208.5,177.5L337.5,177.5L308.5,206.5L229,206.5L218.5,217L218.5,242.5L306,242.5L277.5,271.5L229,271.5L218.5,282L218.5,327.5L185,364.5L185,199Z"/></svg><p>F.R.E.Y.A.</p></div>
+<script>(function(){var s=document.getElementById('splash');try{if(sessionStorage.getItem('fsplash')||/[?&](wake|mini)\b/.test(location.search)||matchMedia('(prefers-reduced-motion: reduce)').matches){s.remove();return}sessionStorage.setItem('fsplash','1')}catch(e){}setTimeout(function(){s&&s.remove()},1700)})();</script>
 <canvas id="bg" aria-hidden="true"></canvas>
 <header id="top" hidden><div id="next"></div><div id="dots"></div></header>
 <main>
   <div class="stage">
     <div id="rings" aria-hidden="true"></div>
     <div class="work" aria-hidden="true"><i></i></div>
-    <div class="orb" id="orb" role="button" tabindex="0" aria-label="Talk to FREYA" data-state="idle"><div class="swirl"></div></div>
+    <div class="orb" id="orb" role="button" tabindex="0" aria-label="Talk to FREYA" data-state="idle">
+      <div class="hud">
+        <div class="halo"></div>
+        <div class="lyr l-inner"><svg viewBox="0 0 512 512"><path d="M344.78,119.3A163,163 0 0 1 397.16,174.5M319.69,105.96A163,163 0 0 1 328.73,110.13M405.48,191A163,163 0 0 1 409.17,200.25M392.7,344.78A163,163 0 0 1 337.5,397.16M406.04,319.69A163,163 0 0 1 401.87,328.73M321,405.48A163,163 0 0 1 311.75,409.17M167.22,392.7A163,163 0 0 1 114.84,337.5M192.31,406.04A163,163 0 0 1 183.27,401.87M106.52,321A163,163 0 0 1 102.83,311.75M119.3,167.22A163,163 0 0 1 174.5,114.84M105.96,192.31A163,163 0 0 1 110.13,183.27M191,106.52A163,163 0 0 1 200.25,102.83"/></svg></div>
+        <div class="lyr l-ring"><svg viewBox="0 0 512 512"><path class="ring-main" d="M265.21,80.24A176,176 0 0 1 431.76,246.79M431.76,265.21A176,176 0 0 1 265.21,431.76M246.79,431.76A176,176 0 0 1 80.24,265.21M80.24,246.79A176,176 0 0 1 246.79,80.24"/><path class="ring-bold" d="M359.45,113.61A176,176 0 0 1 403.61,160.14M398.39,359.45A176,176 0 0 1 351.86,403.61M152.55,398.39A176,176 0 0 1 108.39,351.86M113.61,152.55A176,176 0 0 1 160.14,108.39"/></svg></div>
+        <div class="lyr l-ticks"><svg viewBox="0 0 512 512"><path d="M256,96L256,66M416,256L446,256M256,416L256,446M96,256L66,256"/></svg></div>
+        <div class="lyr l-fglow"><svg viewBox="0 0 512 512"><defs><mask id="fcut1"><rect width="512" height="512" fill="#fff"/><path d="M168,296L204,260" stroke="#000" stroke-width="3.5"/></mask></defs><g mask="url(#fcut1)"><path class="f-glow" d="M208.5,177.5L337.5,177.5L308.5,206.5L229,206.5L218.5,217L218.5,242.5L306,242.5L277.5,271.5L229,271.5L218.5,282L218.5,327.5L185,364.5L185,199Z"/></g></svg></div>
+        <div class="lyr l-f"><svg viewBox="0 0 512 512"><defs><mask id="fcut2"><rect width="512" height="512" fill="#fff"/><path d="M168,296L204,260" stroke="#000" stroke-width="3.5"/></mask></defs><g mask="url(#fcut2)"><path class="f-line" d="M208.5,177.5L337.5,177.5L308.5,206.5L229,206.5L218.5,217L218.5,242.5L306,242.5L277.5,271.5L229,271.5L218.5,282L218.5,327.5L185,364.5L185,199Z"/></g></svg><i class="glare"></i></div>
+      </div>
+    </div>
   </div>
   <div class="info">
     <h1>F.R.E.Y.A.</h1>
@@ -43,7 +55,7 @@
 
 <section id="lock" hidden>
   <div class="lock-inner">
-    <div class="orb mini" aria-hidden="true"></div>
+    <img class="mark-img" src="/mark.svg" alt="" width="120" height="120">
     <h1>F.R.E.Y.A.</h1>
     <div data-v="enrol" hidden>
       <p>One-time setup, Eesah. Lock me to your fingerprint so nobody else can open your life.</p>
@@ -69,6 +81,7 @@
 
 <section id="wrap" hidden>
   <div class="wrap-inner">
+    <img class="mark-img sm" src="/mark.svg" alt="" width="56" height="56">
     <p class="kicker">Your plan</p>
     <h2 id="plan-headline"></h2>
     <div id="plan-sections"></div>
