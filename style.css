@@ -362,3 +362,23 @@ body.mini #hist,body.cam-on #hist{display:none!important}
 .ht.freya{justify-self:start;background:rgba(255,255,255,.05);color:#e9dcc4;border-bottom-left-radius:4px}
 .ht.seen,.ht.note{justify-self:center;max-width:92%;background:none;border:1px dashed rgba(232,180,90,.3);color:#cdb898;font-size:12.5px;text-align:center}
 #hbody{display:grid;gap:8px}
+.rq{font-size:16px;line-height:1.45;color:#f6e3bd;margin:0}
+.rqr{font-size:14px;line-height:1.5;color:#e9dcc4;margin:0;border-left:2px solid var(--gold);padding-left:10px}
+#card textarea,.qa textarea{width:100%;box-sizing:border-box}
+.askc{border-color:rgba(232,190,110,.35)}
+.askc #ask-q{font-size:16px}
+.qa{padding:12px 0;border-top:1px solid rgba(255,255,255,.07);transition:opacity .25s}
+.qa:first-child{border-top:0;padding-top:4px}
+.qa.gone{opacity:.3;pointer-events:none}
+.qa .qt,.qd .qt{margin:4px 0 8px;font-size:15px;line-height:1.45;color:#f6e3bd}
+.qf{display:flex;gap:8px;align-items:flex-end}
+.qf textarea{flex:1;min-height:42px;resize:none;font:inherit;font-size:16px}
+.qf button{flex:none}
+.qx{display:flex;gap:14px;margin-top:4px}
+.qx .link{font-size:13px;opacity:.7;padding:6px 0}
+.qme{margin:0 0 6px;font-size:14px;line-height:1.45;opacity:.9;text-align:right;color:#fff}
+.qr{margin:6px 0 0;font-size:14px;line-height:1.5;color:#e9dcc4;border-left:2px solid var(--gold);padding-left:10px}
+.qdone{margin-top:10px}
+.qdone summary{cursor:pointer;font-size:13px;opacity:.75;padding:6px 0}
+.qd{padding:10px 0;border-top:1px solid rgba(255,255,255,.07)}
+.qf[hidden],.qx[hidden],.qa [hidden],.qdone[hidden]{display:none!important}

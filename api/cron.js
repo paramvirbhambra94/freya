@@ -84,7 +84,7 @@ module.exports = async (req, res) => {
     if (!subs.length || !s.schedule) return res.status(200).json({ ok: true, google: meet, money, learn: learn && (learn.error || learn.skipped || 'ok'), skipped: !subs.length ? 'no subscriptions' : 'no schedule' });
     const now = s.schedule.now, today = s.schedule.today, manual = !!s.private.manualUntil;
     const prayerHabit = n => s.habits.find(h => h.kind === 'prayer' && h.name.toLowerCase() === n);
-    const send = async (key, msg) => { if (await claim(key)) { const n = await sendPush(msg); if (!n) await unclaim(key); else out.push(key); } };
+    const send = async (key, msg) => { if (msg.url === '/' && /\?\s*$/.test(msg.body || '')) msg = { ...msg, url: '/?ask=' + encodeURIComponent(String(msg.body).slice(0, 300)) }; if (await claim(key)) { const n = await sendPush(msg); if (!n) await unclaim(key); else out.push(key); } };
 
     for (const [i, n] of NAMES.entries()) {
       const p = today.prayers[n], a = toMin(p.adhan), q = p.iqamah ? toMin(p.iqamah) : a + 10;

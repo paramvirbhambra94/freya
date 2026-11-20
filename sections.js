@@ -126,15 +126,59 @@
   }
   function metricsHtml(d) {
     const ms = (d.config.metrics || []); if (!ms.length) return '';
-    return `<section class="scard"><h3>Tracking</h3><div class="mgrid">${ms.map(m => {
+    return `<section class="scard" id="mcard"><h3>Tracking</h3><div class="mgrid">${ms.map(m => {
       const pts = d.metrics_data.filter(x => x.key === m.key), last = pts[pts.length - 1];
       return `<div class="met"><span class="ml">${esc(m.label)}</span><span class="mv">${last ? esc(+(+last.value).toFixed(1)) : '—'}<small> ${esc(m.unit || '')}</small></span>${spark(pts.slice(-20), m.direction)}${m.source === 'manual' ? `<form class="mlog" data-k="${esc(m.key)}"><input inputmode="decimal" placeholder="Log" aria-label="Log ${esc(m.label)}"><button aria-label="Save">+</button></form>` : ''}</div>`;
     }).join('')}</div></section>`;
   }
   function feedHtml(d) {
-    if (!d.insights.length) return '';
-    return `<section class="scard"><h3>From Freya</h3><div class="feed">${d.insights.slice(0, 15).map(i => `<div class="ins ${i.kind}"><span class="ik">${KIND[i.kind] || 'Insight'} · ${fmtDay(i.created_at)}</span><p>${esc(i.text)}</p>${i.data && i.data.rewrites ? i.data.rewrites.map(r => `<div class="rw"><s>${esc(r.original)}</s><b>${esc(r.better)}</b><em>${esc(r.why)}</em></div>`).join('') : ''}${i.kind === 'prep' && i.data ? prepHtml(i.data) : ''}</div>`).join('')}</div></section>`;
+    const ins = d.insights.filter(i => i.kind !== 'question');
+    return `<section class="scard"><h3>Freya's insights</h3>${ins.length ? `<div class="feed">${ins.slice(0, 15).map(i => `<div class="ins ${i.kind}"><span class="ik">${KIND[i.kind] || 'Insight'} · ${fmtDay(i.created_at)}</span><p>${esc(i.text)}</p>${i.data && i.data.rewrites ? i.data.rewrites.map(r => `<div class="rw"><s>${esc(r.original)}</s><b>${esc(r.better)}</b><em>${esc(r.why)}</em></div>`).join('') : ''}${i.kind === 'prep' && i.data ? prepHtml(i.data) : ''}</div>`).join('')}</div>` : '<p class="hint">Drop something in and I’ll tell you what I see.</p>'}</section>`;
   }
+  const qHtml = q => `<div class="qa" data-id="${esc(q.id)}"><span class="ik">${fmtDay(q.at)}</span><p class="qt">${esc(q.text)}</p><form class="qf"><textarea rows="1" placeholder="Type or dictate your answer…" aria-label="Your answer" enterkeyhint="send"></textarea><button aria-label="Send answer">Send</button></form><div class="qx"><button type="button" class="link" data-why="skip">Skip</button><button type="button" class="link" data-why="irrelevant">Not relevant</button></div><p class="qr" hidden></p></div>`;
+  const doneHtml = q => `<div class="qd"><p class="qt">${esc(q.text)}</p><p class="qme">${esc(q.answer || '')}</p>${q.reply ? `<p class="qr">${esc(q.reply)}</p>` : ''}<span class="ik">${fmtDay(q.at)}</span></div>`;
+  function questionsHtml(d) {
+    const open = d.questions_open || [], done = d.questions_answered || [];
+    return `<section class="scard" id="qcard"><h3>Questions for you</h3><div id="qopen">${open.length ? open.map(qHtml).join('') : '<p class="hint" id="qnone">Nothing to ask right now. I’ll ask when an answer would actually help.</p>'}</div>${done.length ? `<details class="qdone"><summary>Answered (<span id="qn">${done.length}</span>)</summary><div id="qdl">${done.map(doneHtml).join('')}</div></details>` : `<details class="qdone" hidden><summary>Answered (<span id="qn">0</span>)</summary><div id="qdl"></div></details>`}</section>`;
+  }
+  function askHtml() {
+    return `<section class="scard askc"><h3>Ask Freya</h3><div id="ask-log" class="asklog"></div><form id="ask" class="row l"><input id="ask-q" placeholder="Ask anything about this…" aria-label="Ask Freya" enterkeyhint="send"><button>Ask</button></form></section>`;
+  }
+  function wireQuestions(d) {
+    const k = d.key, box = $('qcard'); if (!box) return;
+    const bind = el => {
+      const id = el.dataset.id, f = el.querySelector('.qf'), ta = f.querySelector('textarea'), btn = f.querySelector('button'), out = el.querySelector('.qr');
+      ta.addEventListener('input', () => { ta.style.height = 'auto'; ta.style.height = Math.min(140, ta.scrollHeight) + 'px'; });
+      ta.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); f.requestSubmit(); } });
+      f.addEventListener('submit', async e => {
+        e.preventDefault(); const ans = ta.value.trim(); if (!ans) return ta.focus();
+        btn.disabled = true; btn.textContent = '…'; ta.disabled = true;
+        const r = await post('/api/state', { action: 'sec_answer', section: k, id, answer: ans }).catch(() => ({}));
+        if (!r.ok) { btn.disabled = false; ta.disabled = false; btn.textContent = 'Send'; return toast(r.error || 'Couldn’t save that. Try again.'); }
+        f.hidden = true; el.querySelector('.qx').hidden = true;
+        el.insertAdjacentHTML('beforeend', ''); out.hidden = false; out.textContent = r.reply;
+        el.querySelector('.qt').insertAdjacentHTML('afterend', `<p class="qme">${esc(ans)}</p>`);
+        if ((r.logged || []).length) { toast('Logged · ' + r.logged.map(m => `${m.label} ${m.value}${m.unit ? ' ' + m.unit : ''}`).join(', ')); updMetrics(); }
+        setTimeout(() => moveDone(el, { text: el.querySelector('.qt').textContent, answer: ans, reply: r.reply, at: new Date().toISOString() }), 6000);
+        if (r.follow_up) addOpen(r.follow_up);
+      });
+      el.querySelectorAll('.qx button').forEach(b => b.onclick = async () => {
+        el.classList.add('gone'); const r = await post('/api/state', { action: 'sec_dismiss', section: k, id, why: b.dataset.why }).catch(() => ({}));
+        if (r.ok) { setTimeout(() => { el.remove(); noneCheck(); }, 250); toast(b.dataset.why === 'irrelevant' ? 'Got it, I won’t ask that' : 'Skipped'); } else { el.classList.remove('gone'); toast('Couldn’t do that. Try again.'); }
+      });
+    };
+    const noneCheck = () => { const o = $('qopen'); if (o && !o.querySelector('.qa') && !$('qnone')) o.innerHTML = '<p class="hint" id="qnone">All answered. Thank you, that helps.</p>'; };
+    const moveDone = (el, q) => { const dl = $('qdl'); if (!dl) return; dl.insertAdjacentHTML('afterbegin', doneHtml(q)); const det = dl.closest('details'); det.hidden = false; $('qn').textContent = dl.children.length; el.remove(); noneCheck(); };
+    const addOpen = q => { const o = $('qopen'); if (!o) return; const n = $('qnone'); if (n) n.remove(); o.insertAdjacentHTML('beforeend', qHtml(q)); bind(o.lastElementChild); };
+    box.querySelectorAll('.qa').forEach(bind);
+  }
+  async function updMetrics() {
+    if (!cur) return; const k = cur;
+    const d = await getJ('/api/state?sec=' + k).catch(() => null);
+    if (!d || d.status !== 'ready' || cur !== k) return; curData = d;
+    const old = $('mcard'), html = metricsHtml(d); if (old && html) { old.outerHTML = html; body.querySelectorAll('#mcard .mlog').forEach(wireLog); }
+  }
+  let wireLog = () => {};
   const prepHtml = p => `<div class="prep"><b>Aim:</b> ${esc(p.objective)}<br><b>Land:</b> ${(p.key_points || []).map(esc).join(' · ')}<br><b>Ask:</b> ${(p.questions || []).map(esc).join(' · ')}<br><b>Watch:</b> ${esc(p.watch_out)}<br><b>Open with:</b> “${esc(p.opener)}”</div>`;
   function itemsHtml(d) {
     if (!d.items.length) return '';
@@ -159,10 +203,9 @@
     const c = d.config || {};
     body.innerHTML = `<div class="sready">
       <div class="shero">${ring('idle')}<div><p class="kicker">${esc(d.name)}</p><h2>${esc(c.headline || d.name)}</h2><p class="ssum">${esc(c.summary || '')}</p></div></div>
-      ${toolsHtml(d)}${dropHtml(d)}${metricsHtml(d)}${feedHtml(d)}
+      ${askHtml()}${questionsHtml(d)}${toolsHtml(d)}${dropHtml(d)}${metricsHtml(d)}${feedHtml(d)}
       ${(c.goals || []).length ? `<section class="scard"><h3>Your goals</h3><ul class="goals">${c.goals.map(g => `<li><b>${esc(g.title)}</b>${g.target ? ` · ${esc(g.target)}` : ''}${g.by ? ` · ${esc(g.by)}` : ''}</li>`).join('')}</ul>${(c.coaching_plan || []).length ? `<h3 class="sub">The plan</h3><ul class="plan">${c.coaching_plan.map(p => `<li><span>${esc(p.phase)}</span>${esc(p.focus)}</li>`).join('')}</ul>` : ''}</section>` : ''}
       ${itemsHtml(d)}
-      <section class="scard"><h3>Ask Freya about this</h3><div id="ask-log" class="asklog"></div><form id="ask" class="row l"><input id="ask-q" placeholder="e.g. How am I doing this month?" enterkeyhint="send"><button>Ask</button></form></section>
       <section class="scard danger">${d.key === 'body' ? `<label class="tog"><input type="checkbox" id="thumbs" ${d.settings && d.settings.thumbs === false ? '' : 'checked'}><span></span>Keep small progress thumbnails for then vs now</label>` : ''}<button class="link del" id="wipe">Delete everything in this section</button></section>
     </div>`;
     wireReady(d);
@@ -177,7 +220,9 @@
     drop.addEventListener('drop', e => { e.preventDefault(); drop.classList.remove('over'); [...e.dataTransfer.files].forEach(f => queue(f)); });
     $('paste-b').onclick = () => { $('paste').hidden = !$('paste').hidden; if (!$('paste').hidden) $('paste-t').focus(); };
     $('paste-go').onclick = async () => { const t = $('paste-t').value.trim(); if (!t) return; $('paste-t').value = ''; $('paste').hidden = true; await sendText(k === 'connections' && looksChat(t) ? await prepChat(t) : t, k === 'connections' ? 'chat' : 'note', 'Pasted text'); };
-    body.querySelectorAll('.mlog').forEach(f => f.addEventListener('submit', async e => { e.preventDefault(); const v = parseFloat(f.querySelector('input').value.replace(',', '.')); if (!isFinite(v)) return; const r = await post('/api/state', { action: 'sec_metric', section: k, key: f.dataset.k, value: v }); if (r.ok) { toast('Logged'); refresh(); } }));
+    wireLog = f => f.addEventListener('submit', async e => { e.preventDefault(); const v = parseFloat(f.querySelector('input').value.replace(',', '.')); if (!isFinite(v)) return; const r = await post('/api/state', { action: 'sec_metric', section: k, key: f.dataset.k, value: v }); if (r.ok) { toast('Logged'); updMetrics(); } });
+    body.querySelectorAll('.mlog').forEach(wireLog);
+    wireQuestions(d);
     $('ask').addEventListener('submit', async e => {
       e.preventDefault(); const q = $('ask-q').value.trim(); if (!q) return; $('ask-q').value = '';
       const log = $('ask-log'); log.insertAdjacentHTML('beforeend', `<p class="me">${esc(q)}</p><p class="her" id="ask-wait">…</p>`);
@@ -303,8 +348,13 @@
   async function sendText(text, kind, label, set, k = cur) {
     set = set || row(label); set('Freya is reading…');
     const r = await post('/api/state', { action: 'sec_text', section: k, kind, text, name: label }).catch(() => ({}));
-    set(r.ok ? 'Done · insight ready' : (r.error || 'Saved. I’ll finish it in the background.')); if (cur && cur === k) refresh();
+    set(r.ok ? 'Done · insight ready' : (r.error || 'Saved. I’ll finish it in the background.')); liveCtx(k, kind, r); if (cur && cur === k) refresh();
     return r;
+  }
+  // Tell a live voice session what just landed in a section, so she knows without him re-sharing.
+  function liveCtx(k, kind, r) {
+    if (!window.freyaContext) return; const a = (r && r.analysis) || {};
+    window.freyaContext(`He just added a ${kind} to his ${({ body: 'Body', connections: 'Connections', mind: 'Mind & Deen', work: 'Work & Ambition', vault: 'Vault' })[k] || k} section. ${r && r.ok ? 'What you saw: ' + [a.title, a.summary || r.insight].filter(Boolean).join('. ') + ((a.insights || [])[0] ? ' Your take: ' + a.insights[0] : '') : 'It is still being analysed; call section_uploads in a moment for it.'}`.slice(0, 1500));
   }
   async function putFile(url, blob, type) { const r = await fetch(url, { method: 'PUT', headers: { 'content-type': type, 'x-upsert': 'true' }, body: blob }); if (!r.ok) throw new Error('upload ' + r.status); }
   async function queue(file, k = cur, set) {
@@ -327,6 +377,7 @@
       set('Freya is looking…');
       const r = await post('/api/state', { action: 'sec_uploaded', section: k, id: u.id }).catch(() => ({}));
       set(r.ok ? 'Done · insight ready' : (r.error || 'Saved. I’ll finish it in the background.'));
+      liveCtx(k, kind, r);
       if (cur === k) refresh();
       return r.ok ? { ok: true, insight: r.insight || (r.analysis && r.analysis.summary) || null } : { ok: !!u.id, pending: true, error: r.error };
     } catch (e) { set(/too long/.test(e.message) ? 'Video too long (max 10 min)' : 'Couldn’t read that file'); }

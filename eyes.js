@@ -171,5 +171,36 @@
   }
   hb.addEventListener('click', openHist); $('hclose').addEventListener('click', () => { hv.hidden = true; });
 
+  // ---------- reply to anything she asked (spoken question left hanging, nudge, notification ?ask=) ----------
+  let replyShown = false, askParam = new URLSearchParams(location.search).get('ask');
+  function replyCard(q, from) {
+    if (!q || !q.text || !$('card').hidden || active || document.body.classList.contains('mini')) return;
+    replyShown = true;
+    card(`<p class="kicker">Freya asked</p><p class="rq">${esc(q.text)}</p><textarea id="rq-a" rows="2" placeholder="Type or dictate your answer…" enterkeyhint="send"></textarea><div class="row"><button id="rq-skip" class="link">Skip</button><button id="rq-talk" class="ghost">Talk instead</button><button id="rq-send">Reply</button></div><p id="rq-out" class="rqr" hidden></p>`);
+    const done = () => { replyShown = false; try { localStorage.removeItem('freyaOpenQ'); } catch (x) {} };
+    $('rq-skip').onclick = () => { done(); hideCard(); };
+    $('rq-talk').onclick = () => { done(); hideCard(); start(); };
+    $('rq-send').onclick = async () => {
+      const a = $('rq-a').value.trim(); if (!a) return $('rq-a').focus();
+      $('rq-send').disabled = true; $('rq-send').textContent = '…';
+      const r = await post('/api/memory', { action: 'answer', session: q.sid, question: q.text, answer: a, from }).catch(() => ({}));
+      done();
+      $('rq-a').hidden = true; $('rq-skip').hidden = true; $('rq-talk').hidden = true;
+      const out = $('rq-out'); out.hidden = false; out.textContent = r.reply || "Saved. I'll pick it up from here.";
+      $('rq-send').disabled = false; $('rq-send').textContent = 'Done'; $('rq-send').onclick = hideCard;
+    };
+  }
+  function checkReplies() {
+    if (!authed || active || replyShown || !(onboardingState && onboardingState.status === 'complete') || document.body.classList.contains('mini')) return;
+    if (askParam) { const ask = askParam; askParam = null; if (/[?&]ask=/.test(location.search)) history.replaceState(null, '', '/'); return replyCard({ text: ask.slice(0, 400) }, 'notification'); }
+    const q = readLS('freyaOpenQ', null);
+    if (q && Date.now() - q.at < 12 * 36e5) replyCard(q, 'voice');
+  }
+  addEventListener('freya:ready', () => setTimeout(checkReplies, 600));
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) setTimeout(checkReplies, 900); });
+  window.freyaReplies = { check: checkReplies, hide: () => { if (replyShown) { replyShown = false; hideCard(); } } };
+  // Stopping mid-conversation right after she asked something: offer the reply box straight away.
+  new MutationObserver(() => { if (!active) setTimeout(checkReplies, 700); }).observe(orb, { attributes: true, attributeFilter: ['data-state'] });
+
   window.freyaEyes = { on: isOn, close: closeCam, open: openCam, share, saveToSection };
 })();

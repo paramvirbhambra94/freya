@@ -161,6 +161,23 @@ async function prune(claim) {
   return 1;
 }
 
+// A typed reply to something she asked (spoken question he didn't answer, a nudge, a notification).
+async function answerQ(b) {
+  const q = clip(String(b.question || ''), 600).trim(), a = clip(String(b.answer || ''), 2000).trim();
+  if (!q || !a) throw bad('missing');
+  const sid = SID.test(String(b.session || '')) ? String(b.session) : 'reply-' + new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  let r;
+  try {
+    const [p, mems] = await Promise.all([getProfile().catch(() => ({})), db('memories?select=content&order=created_at.desc&limit=30').catch(() => [])]);
+    r = await gen([{ text: `You are FREYA, Eesah's calm, warm AI companion (British English, plain and concise, never sycophantic, no jokes). Earlier you asked him something and he has now typed a reply. React in one or two short sentences: acknowledge what he said specifically; add a next step only if it follows directly from his words. Use ONLY facts from his reply and WHAT YOU KNOW. Never add details, opinions or assumptions about places, people, traffic, parking, prices or anything he did not mention. Never say you will set, change, schedule or remind anything (you cannot from here); say it is noted, e.g. "Noted: 6:30 after Fajr." If he wants it actually changed, suggest telling you by voice. No question unless essential.\nWHAT YOU KNOW: ${mems.map(m => m.content).join(' | ').slice(0, 3000)}${p.convo_summary ? '\nRECENT CONTEXT: ' + p.convo_summary.slice(0, 1500) : ''}\nYOU ASKED: ${q}\nHE REPLIED: ${a}` }], { type: 'OBJECT', properties: { reply: { type: 'STRING' }, facts: { type: 'ARRAY', items: { type: 'OBJECT', properties: { category: { type: 'STRING', enum: CATS }, content: { type: 'STRING' } }, required: ['category', 'content'] }, description: 'durable facts about Eesah from his reply; [] if none' } }, required: ['reply', 'facts'] }, { models: ['gemini-flash-lite-latest', 'gemini-flash-latest'], timeout: 20000, temperature: 0.2 });
+  } catch (e) { r = { reply: 'Got it, noted.', facts: [] }; }
+  const reply = clip(String(r.reply || 'Noted.'), 500);
+  for (const f of (r.facts || []).slice(0, 3)) { const t = clip(String(f.content || ''), 400).trim(); if (t) await db('memories', { method: 'POST', body: { category: CATS.includes(f.category) ? f.category : 'other', content: t, source: 'convo' } }).catch(() => {}); }
+  const tag = 'ans-' + Date.now().toString(36);
+  await touch(sid);
+  await insert(sid, [...(b.from === 'voice' ? [] : [{ cid: tag + '.q', role: 'freya', text: q, mode: 'reply', created_at: new Date(Date.now() - 1000).toISOString() }]), { cid: tag + '.a', role: 'user', text: a, mode: 'reply', created_at: new Date().toISOString() }, { cid: tag + '.r', role: 'freya', text: reply, mode: 'reply', created_at: new Date(Date.now() + 500).toISOString() }]);
+  return { ok: true, reply };
+}
 // The conversation as a readable history (for the History view).
 async function history(b) {
   const limit = Math.max(10, Math.min(200, parseInt(b.limit, 10) || 80));
@@ -173,6 +190,7 @@ async function handle(b) {
   if (b.action === 'seen') return seen(b);
   if (b.action === 'recall') return recall(b);
   if (b.action === 'history') return history(b);
+  if (b.action === 'answer') return answerQ(b);
   throw bad('unknown_action');
 }
 module.exports = { handle, addTurns, seen, recall, history, context, block, digest, prune };

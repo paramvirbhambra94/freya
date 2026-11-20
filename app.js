@@ -84,8 +84,9 @@ function pushTurn(role, text) {
   conv.at = Date.now(); saveConv(); writeLS('freyaTurnQ', turnQ);
   clearTimeout(flushT); flushT = setTimeout(() => flushTurns(), 1200);
 }
-const flushHim = () => { if (himBuf.trim()) pushTurn('user', himBuf); himBuf = ''; };
-const flushHer = () => { if (herBuf.trim()) pushTurn('freya', herBuf); herBuf = ''; };
+let lastHerQ = null; // a question she asked that he hasn't answered yet (so it can be answered later in text)
+const flushHim = () => { if (himBuf.trim()) { pushTurn('user', himBuf); lastHerQ = null; } himBuf = ''; };
+const flushHer = () => { const t = herBuf.trim(); if (t) { pushTurn('freya', t); const m = t.match(/[^.!?]*\?\s*$/); lastHerQ = m && m[0].trim().length > 8 ? { text: m[0].trim(), sid: conv.sid, at: Date.now() } : null; } herBuf = ''; };
 const sendMem = (body, keepalive) => fetch('/api/memory', { method: 'POST', keepalive: !!keepalive, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
 async function flushTurns(extra, keepalive) {
   if (flushing) { if (extra) setTimeout(() => flushTurns(extra, keepalive), 800); return; }
@@ -194,6 +195,9 @@ async function handleTool(f) {
   try {
     if (f.name === 'recall_conversations') { const r = await post('/api/memory', { action: 'recall', query: a.query || '', days: a.days }); return r.ok ? JSON.stringify(r).slice(0, 8000) : 'memory search unavailable right now'; }
     if (f.name === 'save_to_section') { return window.freyaEyes ? await freyaEyes.saveToSection(a.section, a.note) : 'not available'; }
+    if (f.name === 'section_uploads') { const r = await getJ('/api/state?sec=uploads&section=' + encodeURIComponent(a.section || '') + '&limit=' + (+a.recent || 8)); return JSON.stringify(r).slice(0, 9000); }
+    if (f.name === 'look_at_section_photos') return await lookAtPhotos(a.count);
+    if (f.name === 'update_section') { const r = await post('/api/state', { action: 'sec_from_chat', ...a }); if (r.logged) toast('Logged · ' + r.logged); else if (r.answered || r.noted) toast('Saved to ' + (a.section || 'section')); return JSON.stringify(r).slice(0, 2000); }
     if (f.name === 'section_insights') { const r = await getJ('/api/state?sec=insights&section=' + encodeURIComponent(a.section || '')); return JSON.stringify(r).slice(0, 6000); }
     if (f.name === 'save_memory') { const r = await post('/api/memory', { category: a.category, content: a.content }); if (r.ok) toast('Noted: ' + a.content); return r.ok ? 'saved' : 'not saved'; }
     if (f.name === 'save_answer') { const r = await post('/api/onboarding', { action: 'answer', topic: a.topic, question: a.question, answer: a.answer }); if (r.ok) toast('Noted · ' + (a.topic || 'answer')); return r.ok ? 'saved' : 'not saved'; }
@@ -263,6 +267,22 @@ async function handleTool(f) {
   } catch (e) { return 'error'; }
   return 'unknown tool';
 }
+// Her Body progress photos, put in front of her as one dated contact sheet (oldest to newest).
+async function lookAtPhotos(count) {
+  const r = await getJ('/api/state?sec=photos&count=' + Math.max(2, Math.min(6, +count || 4)));
+  const ph = (r && r.photos) || [];
+  if (!ph.length) return 'He has no kept progress photos yet (thumbnails may be switched off). Use section_uploads for what you saw in his uploads.';
+  const imgs = await Promise.all(ph.map(p => new Promise(res => { const i = new Image(); i.onload = () => res(i); i.onerror = () => res(null); i.src = 'data:image/jpeg;base64,' + p.data; })));
+  const W = 320, H = 400, pad = 28, c = document.createElement('canvas'); c.width = W * ph.length; c.height = H + pad;
+  const g = c.getContext('2d'); g.fillStyle = '#000'; g.fillRect(0, 0, c.width, c.height); g.fillStyle = '#fff'; g.font = '18px sans-serif'; g.textAlign = 'center';
+  imgs.forEach((im, i) => { if (im) { const k = Math.min(W / im.width, H / im.height), w = im.width * k, h = im.height * k; g.drawImage(im, i * W + (W - w) / 2, (H - h) / 2, w, h); } g.fillText(new Date(ph[i].at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }), i * W + W / 2, H + 20); });
+  const data = c.toDataURL('image/jpeg', 0.8).split(',')[1];
+  if (ws && ws.readyState === 1) ws.send(JSON.stringify({ realtimeInput: { video: { data, mimeType: 'image/jpeg' } } }));
+  return `His ${ph.length} most recent Body progress photos are now in front of you as ONE image, left to right, oldest to newest, dated ${ph.map(p => new Date(p.at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })).join(', ')}. Your notes when he uploaded them: ${ph.map(p => (p.summary || p.title || '').slice(0, 200)).join(' | ')}. Look at the image and answer from what you actually see: mention one or two concrete details (what he is wearing, pose, setting) so he knows you really looked, then the physique point (posture, shape, visible change). Specific, kind, honest.`;
+}
+// Quiet context for the live session (e.g. he just uploaded something in a section). Adds to her context without a reply.
+window.freyaContext = text => { if (!(ws && ws.readyState === 1 && active)) return false; try { ws.send(JSON.stringify({ clientContent: { turns: [{ role: 'user', parts: [{ text: '(Context update, not his words: ' + text + ')' }] }], turnComplete: false } })); return true; } catch (e) { return false; } };
+
 function alarmTool(name, a) {
   if (!APP) return 'Alarms need the FREYA Android app (this is a plain browser). Tell him to install it from freya-black.vercel.app/app on his Samsung.';
   const when = t => new Date(t).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
@@ -398,6 +418,7 @@ async function start() {
     }
     active = true; turnDone = false; finishing = null; himBuf = ''; herBuf = '';
     // Same conversation if he's back within 30 minutes (resume handle if still valid, else rebuilt from saved turns).
+    try { localStorage.removeItem('freyaOpenQ'); } catch (e) {} if (window.freyaReplies) freyaReplies.hide();
     conv = readLS('freyaConv', conv); // the floating panel may have just been talking (shared thread)
     const gap = Date.now() - (conv.at || 0), special = forceOnboarding || briefPending || debriefPending || nudgePending;
     if (!conv.sid || gap > 30 * 60e3 || special) { conv = { sid: newSid(), at: Date.now() }; resumeHandle = null; contInfo = null; }
@@ -421,7 +442,7 @@ async function start() {
 
 function stop(msg, reason) {
   if (window.freyaEyes) freyaEyes.close('session');
-  if (active) endConv(reason || 'dropped', document.hidden); // keepalive: the page may be going away
+  if (active) { endConv(reason || 'dropped', document.hidden); if (lastHerQ && Date.now() - lastHerQ.at < 15 * 60e3) writeLS('freyaOpenQ', lastHerQ); lastHerQ = null; } // keepalive: the page may be going away
   active = false; setBusy(false);
   if (APP) try { FreyaAndroid.sessionActive(false); } catch (e) {}
   const s = ws; ws = null; try { s && s.close(1000); } catch (e) {}
@@ -463,7 +484,7 @@ orb.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') {
 })();
 $('textbar').addEventListener('submit', e => {
   e.preventDefault(); const t = $('textin').value.trim(); if (!t || !ws || ws.readyState !== 1) return;
-  ws.send(JSON.stringify({ realtimeInput: { text: t } })); flushHim(); pushTurn('user', t); caption(himEl, t, false, 7000); newHimTurn = true; $('textin').value = ''; setBusy(true);
+  ws.send(JSON.stringify({ realtimeInput: { text: t } })); flushHim(); pushTurn('user', t); lastHerQ = null; caption(himEl, t, false, 7000); newHimTurn = true; $('textin').value = ''; setBusy(true);
 });
 // Leaving the app pauses her (camera first, instantly). Coming back picks the same conversation up where it was.
 let pausedAt = 0, pickingAt = 0; // pickingAt: he's choosing a photo/video for her (the picker covers the app)
