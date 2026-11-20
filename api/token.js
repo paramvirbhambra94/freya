@@ -210,21 +210,28 @@ const LIFE_TOOLS = [
   { name: 'enable_notifications', description: 'Show him the button to switch on phone notifications.', parameters: OBJ({ reason: STR('Short reason') }, []) }
 ];
 
-async function loadContext() {
+async function loadContext(T) {
   if (!configured()) return { memory: false };
+  const t0 = Date.now(), mark = k => { if (T) T[k] = Date.now() - t0; };
   try {
     const [profile, memories, answers] = await Promise.all([
       getProfile(),
       db('memories?select=category,content&order=created_at.desc&limit=60'),
       db('onboarding_answers?select=topic,question,answer&order=created_at.asc&limit=200')
     ]);
+    mark('profile_memories');
     const [life, subs] = await Promise.all([lifeState().catch(() => null), db('push_subscriptions?select=endpoint').catch(() => [])]);
+    mark('life');
     const ctx = { memory: true, profile, memories, answers, life, pushOn: subs.length > 0, moneyConfigured: M.configured() };
     try { const md = await M.load(); if (md.accounts.length) { ctx.money = M.analyse(md); delete ctx.money.months; delete ctx.money.recurring;
       ctx.patterns = await PL.view(profile); ctx.patterns.drift = profile.onboarding_status === 'complete' ? await PL.driftCheck(md).catch(() => null) : null; } } catch (e) {}
+    mark('money');
     ctx.phone = await PH.view(profile).catch(() => null);
+    mark('phone');
     ctx.sections = await SEC.context().catch(() => null);
+    mark('sections');
     ctx.convo = await CV.context().catch(() => null);
+    mark('convo');
     if (life && life.google && life.google.connected) {
       const now = new Date().toISOString();
       const [cal, deb, notes] = await Promise.all([
@@ -234,6 +241,7 @@ async function loadContext() {
       ]);
       ctx.calendar = cal; ctx.pendingDebriefs = deb; ctx.recentNotes = notes;
     }
+    mark('google');
     return ctx;
   } catch (e) { return { memory: false }; }
 }
@@ -298,3 +306,4 @@ module.exports = async (req, res) => {
   }
 };
 module.exports.persona = persona;
+module.exports.loadContext = loadContext;

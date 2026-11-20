@@ -55,6 +55,8 @@ module.exports = async (req, res) => {
   const out = [];
   // Every-minute poke while a growth section is building (pg_cron job freya-sections-build): sections only.
   if (req.query && req.query.only === 'sections') { try { return res.status(200).json({ ok: true, sections: await SEC.tick(claim) }); } catch (e) { return res.status(500).json({ error: 'sections failed' }); } }
+  // Connect-speed probe (no data returned): how long building her session context takes, phase by phase.
+  if (req.query && req.query.only === 'timing') { const T = {}, t0 = Date.now(); const tk = require('./token'); const ctx = await tk.loadContext(T); T.total = Date.now() - t0; const t1 = Date.now(); const p = tk.persona({ ...ctx, mode: 'companion' }); T.persona_ms = Date.now() - t1; T.persona_chars = p.length; T.region = process.env.VERCEL_REGION || null; return res.status(200).json({ ok: true, timing: T }); }
   if (req.query && req.query.only === 'convo') { try { return res.status(200).json({ ok: true, convo: await CV.digest({ limit: 2, quietMin: +req.query.quiet >= 0 ? +req.query.quiet : 10 }) }); } catch (e) { return res.status(500).json({ error: 'convo failed' }); } }
   let sections = null;
   try { const t = new Date(); const lw = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', weekday: 'short', hour: '2-digit', hourCycle: 'h23' }).formatToParts(t); const wd = lw.find(p => p.type === 'weekday').value, hr = +lw.find(p => p.type === 'hour').value;
