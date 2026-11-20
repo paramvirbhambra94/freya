@@ -42,6 +42,7 @@ class SettingsActivity : Activity() {
         list.removeAllViews()
         list.addView(text("FREYA", 30f, gold))
         list.addView(text("Set her up once. Ticks show what's done.", 15f, Color.LTGRAY))
+        list.addView(text("App version " + (packageManager.getPackageInfo(packageName, 0).versionName ?: "?"), 14f, gold))
 
         wakeSwitch = Switch(this).apply {
             text = "Wake word “Freya” (works with the phone locked)"; textSize = 18f; setTextColor(Color.WHITE)

@@ -106,6 +106,8 @@ GOOGLE WORKSPACE RULES (his JSE work account):
 - Meetings: while he's in a meeting you stay quiet. After meetings, you may offer a short debrief (save it with save_debrief).
 - Never read out private email content during private mode or a meeting.
 
+TURN-TAKING: Never repeat yourself. When you finish speaking, wait in silence until he speaks. If he is silent, stay silent: no follow-ups, no re-asking, no "are you still there". If you hear your own words echoed back, ignore them. If a connection refresh happens, do not restart or repeat anything.
+
 VOLUME: if he says quieter, louder, too loud or whisper, call set_volume straight away and say a few soft words at most. After 10pm keep your voice especially soft.
 
 ALARMS (his phone, via the FREYA Android app):
@@ -201,6 +203,7 @@ module.exports = async (req, res) => {
   if (!key) return res.status(500).json({ error: 'Server key not configured' });
   const ctx = await loadContext();
   const wanted = (req.query && req.query.mode) || '';
+  const resume = req.query && typeof req.query.resume === 'string' && /^[\w-]{8,200}$/.test(req.query.resume) ? req.query.resume : null;
 
   const status = (ctx.profile && ctx.profile.onboarding_status) || 'not_started';
   ctx.mode = ctx.memory && (wanted === 'onboarding' || (wanted !== 'companion' && (status === 'not_started' || status === 'in_progress'))) ? 'onboarding' : 'companion';
@@ -235,7 +238,10 @@ module.exports = async (req, res) => {
           inputAudioTranscription: {},
           outputAudioTranscription: {},
           contextWindowCompression: { slidingWindow: {} },
-          sessionResumption: {}
+          // Resume the same conversation after a dropped/refreshed connection (handle must live in the token).
+          sessionResumption: resume ? { handle: resume } : {},
+          // Less trigger-happy turn detection so her own voice / room noise doesn't count as him speaking.
+          realtimeInputConfig: { automaticActivityDetection: { startOfSpeechSensitivity: 'START_SENSITIVITY_LOW', endOfSpeechSensitivity: 'END_SENSITIVITY_LOW', silenceDurationMs: 800 } }
         }
       })
     });

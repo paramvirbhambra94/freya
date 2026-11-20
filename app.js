@@ -14,7 +14,7 @@ let idleMsg = greeting + ' Tap the orb to talk.';
 setStatus(idleMsg);
 
 // ---------- her volume (remembered; quieter at night 22:00–07:00) ----------
-let outGain = null;
+let outGain = null, resumeHandle = null, lastPlayEnd = 0;
 const isNight = () => { const h = new Date().getHours(); return h >= 22 || h < 7; };
 const volKey = () => isNight() ? 'freyaVolNight' : 'freyaVol';
 function curVol() { const v = parseFloat(localStorage.getItem(volKey())); return isNaN(v) ? (isNight() ? 0.25 : 0.5) : Math.max(0, Math.min(1, v)); }
@@ -66,11 +66,11 @@ function playPcm(b64) {
   const t = Math.max(nextTime, outCtx.currentTime + 0.05);
   src.start(t); nextTime = t + buf.duration;
   sources.add(src);
-  src.onended = () => { sources.delete(src); if (!sources.size && active) { setState('listening'); setStatus(mode === 'onboarding' ? 'Setting you up · listening…' : 'Listening…'); checkFinish(); } };
+  src.onended = () => { sources.delete(src); if (!sources.size) lastPlayEnd = performance.now(); if (!sources.size && active) { setState('listening'); setStatus(mode === 'onboarding' ? 'Setting you up · listening…' : 'Listening…'); checkFinish(); } };
   setBusy(false); setState('speaking'); setStatus('Speaking…');
 }
 function stopPlayback() {
-  sources.forEach(s => { try { s.stop(); } catch (e) {} }); sources.clear(); nextTime = 0;
+  sources.forEach(s => { try { s.stop(); } catch (e) {} }); sources.clear(); nextTime = 0; lastPlayEnd = performance.now();
   if (active) { setState('listening'); setStatus('Listening…'); }
 }
 
@@ -214,7 +214,9 @@ function checkFinish() {
 
 // ---------- session ----------
 async function connect(isReconnect) {
-  const q = forceOnboarding ? '?mode=onboarding' : (briefPending && !isReconnect ? '?mode=brief' : (debriefPending && !isReconnect ? '?mode=debrief&event=' + encodeURIComponent(debriefPending) : ''));
+  let q = forceOnboarding ? '?mode=onboarding' : (briefPending && !isReconnect ? '?mode=brief' : (debriefPending && !isReconnect ? '?mode=debrief&event=' + encodeURIComponent(debriefPending) : ''));
+  const resuming = !!(isReconnect && resumeHandle);
+  if (resuming) q += (q ? '&' : '?') + 'resume=' + encodeURIComponent(resumeHandle);
   const r = await fetch('/api/token' + q, { method: 'POST', cache: 'no-store' });
   if (r.status === 401) { showLock(); throw new Error('Locked. Unlock with your fingerprint first.'); }
   const j = await r.json().catch(() => ({}));
@@ -236,6 +238,7 @@ async function connect(isReconnect) {
   const sock = ws;
   sock.onmessage = async ev => {
     const m = JSON.parse(typeof ev.data === 'string' ? ev.data : await ev.data.text());
+    if (m.sessionResumptionUpdate && m.sessionResumptionUpdate.resumable !== false && m.sessionResumptionUpdate.newHandle) resumeHandle = m.sessionResumptionUpdate.newHandle;
     if (m.toolCall) {
       setBusy(true);
       const calls = m.toolCall.functionCalls || [];
@@ -256,10 +259,10 @@ async function connect(isReconnect) {
     if (m.goAway && active) refresh();
   };
   sock.onclose = e => { if (active && ws === sock) refresh(e); };
-  if (mode === 'onboarding') {
-    const cue = isReconnect ? '(Cue: the connection refreshed. Continue the onboarding naturally from where you left off. Do not greet again.)'
-      : '(Cue: Eesah just tapped the orb to start his onboarding. Begin now.)';
-    sock.send(JSON.stringify({ realtimeInput: { text: cue } }));
+  if (isReconnect) {
+    // Reconnects are silent: the conversation resumes (same history) and she waits for him. No cue, no greeting, no replay.
+  } else if (mode === 'onboarding') {
+    sock.send(JSON.stringify({ realtimeInput: { text: '(Cue: Eesah just tapped the orb to start his onboarding. Begin now.)' } }));
     setBusy(true);
   } else if (j.debrief) {
     debriefPending = null; history.replaceState(null, '', '/');
@@ -267,8 +270,6 @@ async function connect(isReconnect) {
   } else if (j.brief) {
     briefPending = false; history.replaceState(null, '', '/');
     sock.send(JSON.stringify({ realtimeInput: { text: '(Cue: Eesah opened his morning brief. Begin it now.)' } })); setBusy(true);
-  } else if (isReconnect) {
-    sock.send(JSON.stringify({ realtimeInput: { text: '(Cue: the connection refreshed. Do not say anything; wait for Eesah.)' } }));
   }
   retries = 0;
 }
@@ -300,10 +301,15 @@ async function start() {
       micNode.port.onmessage = e => {
         const s = new Int16Array(e.data); let sum = 0; for (let i = 0; i < s.length; i += 4) sum += s[i] * s[i];
         micLevel = Math.max(micLevel, Math.min(1, Math.sqrt(sum / (s.length / 4)) / 6000));
-        if (ws && ws.readyState === 1) ws.send(JSON.stringify({ realtimeInput: { audio: { data: b64FromBuf(e.data), mimeType: 'audio/pcm;rate=16000' } } }));
+        // Echo guard: while she's speaking (and just after), her own voice from the speaker must not count as him.
+        // Quiet frames are replaced with silence; speaking up clearly over her still interrupts (barge-in).
+        const herTalking = sources.size > 0 || performance.now() - lastPlayEnd < 500;
+        const lvl = Math.sqrt(sum / (s.length / 4)) / 6000;
+        const data = herTalking && lvl < 0.35 ? new ArrayBuffer(e.data.byteLength) : e.data;
+        if (ws && ws.readyState === 1) ws.send(JSON.stringify({ realtimeInput: { audio: { data: b64FromBuf(data), mimeType: 'audio/pcm;rate=16000' } } }));
       };
     }
-    active = true; turnDone = false; finishing = null;
+    active = true; turnDone = false; finishing = null; resumeHandle = null;
     await connect(false);
     connecting = false;
     $('textbar').hidden = false; $('redo').hidden = true;
@@ -654,3 +660,6 @@ if (APP) { const ab = $('appbtn'); if (ab) { ab.hidden = false; ab.addEventListe
   r.addEventListener('input', () => setVol(r.value / 100));
   r.addEventListener('change', () => { toast('Her volume · ' + r.value + '%' + (isNight() ? ' (night)' : '')); setTimeout(() => { r.hidden = true; }, 1500); });
 })();
+
+// Android volume keys also step her in-app volume so they always make an audible difference.
+window.freyaVolumeKey = dir => { const v = setVol(curVol() + (dir > 0 ? 0.1 : -0.1)); toast('Her volume · ' + Math.round(v * 100) + '%'); };

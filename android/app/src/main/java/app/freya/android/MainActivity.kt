@@ -44,13 +44,24 @@ class MainActivity : Activity() {
         return if (inSession || am.mode == AudioManager.MODE_IN_COMMUNICATION) AudioManager.STREAM_VOICE_CALL else AudioManager.STREAM_MUSIC
     }
 
-    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
-        if (keyCode == KeyEvent.KEYCODE_VOLUME_UP || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
-            val dir = if (keyCode == KeyEvent.KEYCODE_VOLUME_UP) AudioManager.ADJUST_RAISE else AudioManager.ADJUST_LOWER
-            getSystemService(AudioManager::class.java).adjustStreamVolume(liveStream(), dir, AudioManager.FLAG_SHOW_UI)
-            return true
+    /**
+     * Volume keys, caught before the WebView sees them. Samsung may play her voice on the call stream or on media,
+     * so we turn both, and also step her in-app volume so every press is audible.
+     */
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        val k = event.keyCode
+        if (k != KeyEvent.KEYCODE_VOLUME_UP && k != KeyEvent.KEYCODE_VOLUME_DOWN) return super.dispatchKeyEvent(event)
+        if (event.action == KeyEvent.ACTION_DOWN) {
+            val up = k == KeyEvent.KEYCODE_VOLUME_UP
+            val dir = if (up) AudioManager.ADJUST_RAISE else AudioManager.ADJUST_LOWER
+            val am = getSystemService(AudioManager::class.java)
+            val main = liveStream()
+            val other = if (main == AudioManager.STREAM_VOICE_CALL) AudioManager.STREAM_MUSIC else AudioManager.STREAM_VOICE_CALL
+            try { am.adjustStreamVolume(main, dir, AudioManager.FLAG_SHOW_UI) } catch (e: Exception) {}
+            if (inSession) try { am.adjustStreamVolume(other, dir, 0) } catch (e: Exception) {}
+            if (inSession) web.evaluateJavascript("window.freyaVolumeKey && window.freyaVolumeKey(${if (up) 1 else -1})", null)
         }
-        return super.onKeyDown(keyCode, event)
+        return true
     }
 
     @SuppressLint("SetJavaScriptEnabled", "JavascriptInterface", "WrongConstant")
@@ -161,7 +172,7 @@ class MainActivity : Activity() {
     inner class Bridge {
         private fun ok() = onOurSite
         @JavascriptInterface fun isApp(): Boolean = true
-        @JavascriptInterface fun version(): String = "1.0.1"
+        @JavascriptInterface fun version(): String = packageManager.getPackageInfo(packageName, 0).versionName ?: ""
 
         @JavascriptInterface fun setAlarm(at: Double, label: String?): String {
             if (!ok()) return err("not allowed")
