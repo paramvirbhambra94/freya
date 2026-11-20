@@ -33,6 +33,7 @@ let pendingAction = null;
 const APP = (() => { try { return !!(window.FreyaAndroid && window.FreyaAndroid.isApp()); } catch (e) { return false; } })();
 let wakePending = APP && new URLSearchParams(location.search).has('wake');
 // Floating panel over other apps (Android overlay): compact layout.
+if (APP) document.body.classList.add('app');
 if (APP && new URLSearchParams(location.search).has('mini')) document.body.classList.add('mini');
 let micLevel = 0, outLevel = 0, retries = 0, finishing = null, onboardingState = { configured: false, status: null, plan: null };
 

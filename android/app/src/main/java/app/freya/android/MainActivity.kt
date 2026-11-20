@@ -38,6 +38,30 @@ class MainActivity : Activity() {
     private var geoOrigin: String? = null
     @Volatile private var onOurSite = true
     @Volatile private var inSession = false
+    // Wake-word sessions only start once FREYA is actually on screen (never talk invisibly).
+    private var pendingWake = false
+    private var pageLoaded = false
+    private var resumed = false
+    private val handler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val notShown = Runnable {
+        if (pendingWake) { pendingWake = false; android.util.Log.w("FreyaWake", "not visible in time; leaving Talk notification"); WakeWordService.resume() }
+    }
+
+    private fun fireWakeIfReady() {
+        if (!pendingWake || !pageLoaded || !resumed || !hasWindowFocus()) return
+        pendingWake = false; handler.removeCallbacks(notShown)
+        getSystemService(NotificationManager::class.java).cancel(6)
+        web.evaluateJavascript("window.freyaWake ? window.freyaWake() : 0", null)
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) { super.onWindowFocusChanged(hasFocus); if (hasFocus) fireWakeIfReady() }
+
+    private fun requestWake() {
+        overLock(true)
+        pendingWake = true
+        handler.removeCallbacks(notShown); handler.postDelayed(notShown, 10_000)
+        fireWakeIfReady()
+    }
 
     /** While she's talking, the mic puts Android in call mode, so her voice plays on the call stream. Point the volume keys at it. */
     private fun liveStream(): Int {
@@ -70,7 +94,6 @@ class MainActivity : Activity() {
         super.onCreate(b)
         Channels.ensure(this)
         val wake = isWake(intent)
-        if (wake) overLock(true)
 
         web = WebView(this)
         web.setBackgroundColor(Color.parseColor("#0B0805"))
@@ -120,8 +143,9 @@ class MainActivity : Activity() {
                 return true
             }
             override fun onPageStarted(v: WebView, url: String?, f: android.graphics.Bitmap?) {
-                onOurSite = Uri.parse(url ?: "").host == HOST
+                onOurSite = Uri.parse(url ?: "").host == HOST; pageLoaded = false
             }
+            override fun onPageFinished(v: WebView, url: String?) { pageLoaded = true; fireWakeIfReady() }
         }
         web.webChromeClient = object : WebChromeClient() {
             override fun onPermissionRequest(req: PermissionRequest) {
@@ -138,7 +162,8 @@ class MainActivity : Activity() {
             }
         }
 
-        if (b == null) web.loadUrl(BASE_URL + if (wake) "/?wake=1" else "/") else web.restoreState(b)
+        if (b == null) web.loadUrl("$BASE_URL/") else web.restoreState(b)
+        if (wake) requestWake()
 
         val p = Prefs.app(this)
         if (!p.getBoolean("firstRun", false)) {
@@ -155,22 +180,23 @@ class MainActivity : Activity() {
 
     override fun onNewIntent(i: Intent) {
         super.onNewIntent(i); setIntent(i)
-        if (isWake(i)) {
-            overLock(true)
-            web.evaluateJavascript("window.freyaWake ? window.freyaWake() : location.replace('/?wake=1')", null)
-        }
+        if (isWake(i)) requestWake()
     }
 
     override fun onResume() {
         super.onResume()
         WakeWordService.activityVisible = true
+        resumed = true; fireWakeIfReady()
         getSystemService(NotificationManager::class.java).cancel(6)
         // Mic belongs to the live session while FREYA is on screen.
         if (Prefs.wakeEnabled(this)) WakeWordService.tryStart(this, startPaused = true)
     }
 
+    override fun onPause() { super.onPause(); resumed = false }
+
     override fun onStop() {
         super.onStop()
+        resumed = false
         WakeWordService.activityVisible = false
         overLock(false)
         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
