@@ -37,6 +37,7 @@
         <action android:name="android.intent.action.MAIN"/>
         <category android:name="android.intent.category.LAUNCHER"/>
       </intent-filter>
+      <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts"/>
     </activity>
     <activity android:name=".SettingsActivity" android:exported="false" android:label="FREYA settings"/>
     <activity android:name=".AlarmActivity"
@@ -48,6 +49,10 @@
         android:turnScreenOn="true"
         android:taskAffinity="app.freya.android.alarm"/>
 
+    <service android:name=".TalkTile" android:exported="true" android:label="@string/talk" android:icon="@drawable/ic_stat"
+        android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+      <intent-filter><action android:name="android.service.quicksettings.action.QS_TILE"/></intent-filter>
+    </service>
     <service android:name=".WakeWordService" android:exported="false" android:foregroundServiceType="microphone"/>
     <service android:name=".AlarmService" android:exported="false" android:directBootAware="true" android:foregroundServiceType="mediaPlayback"/>
 

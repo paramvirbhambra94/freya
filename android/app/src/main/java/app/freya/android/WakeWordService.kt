@@ -52,7 +52,7 @@ class WakeWordService : Service(), RecognitionListener {
     private var speech: SpeechService? = null
     private var paused = false
     private var lastTrigger = 0L
-    private val failsafe = Runnable { if (!activityVisible) resume() }
+    private val failsafe = Runnable { if (!activityVisible && !Overlay.showing) resume() }
 
     override fun onBind(i: Intent?): IBinder? = null
 
@@ -128,6 +128,14 @@ class WakeWordService : Service(), RecognitionListener {
         if (now - lastTrigger < 5000) return
         lastTrigger = now
         paused = true; stopListening()   // free the mic for the live session
+        val pm = getSystemService(PowerManager::class.java)
+        val locked = getSystemService(android.app.KeyguardManager::class.java).isKeyguardLocked || !pm.isInteractive
+        // Phone unlocked and in another app: float FREYA over it (needs "Appear on top").
+        if (!locked && android.provider.Settings.canDrawOverlays(this)) {
+            Log.i(TAG, "wake: unlocked -> overlay")
+            if (Overlay.show(this)) return
+        }
+        Log.i(TAG, "wake: locked=$locked overlay=${android.provider.Settings.canDrawOverlays(this)} -> activity/notification")
         // Wake the screen, then open FREYA over the lock screen.
         @Suppress("DEPRECATION")
         getSystemService(PowerManager::class.java).newWakeLock(
@@ -138,7 +146,8 @@ class WakeWordService : Service(), RecognitionListener {
         val n = Notification.Builder(this, Channels.WAKE)
             .setSmallIcon(R.drawable.ic_stat).setContentTitle("FREYA").setContentText("I'm here.")
             .setCategory(Notification.CATEGORY_CALL).setVisibility(Notification.VISIBILITY_PUBLIC)
-            .setFullScreenIntent(pi, true).setContentIntent(pi).setAutoCancel(true).setTimeoutAfter(30_000).build()
+            .setFullScreenIntent(pi, true).setContentIntent(pi).setAutoCancel(true).setTimeoutAfter(30_000)
+            .addAction(Notification.Action.Builder(null, "Talk", pi).build()).build()
         try { getSystemService(NotificationManager::class.java).notify(6, n) } catch (e: SecurityException) {}
         try { startActivity(i) } catch (e: Exception) {}  // works directly when "display over other apps" is allowed
         h.removeCallbacks(failsafe); h.postDelayed(failsafe, 45_000) // if she never opened, listen again
@@ -146,6 +155,7 @@ class WakeWordService : Service(), RecognitionListener {
 
     override fun onPartialResult(hyp: String?) {}
     override fun onResult(hyp: String?) = check(hyp)
+    // (Listening continues while other apps are open; if another app takes the mic, Android gives us silence and we carry on.)
     override fun onFinalResult(hyp: String?) = check(hyp)
     override fun onError(e: Exception?) { Log.w(TAG, "error", e); stopListening(); h.postDelayed({ if (!paused) listen() }, 3000) }
     override fun onTimeout() { stopListening(); if (!paused) listen() }

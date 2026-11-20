@@ -28,6 +28,7 @@ import org.json.JSONObject
 class MainActivity : Activity() {
     companion object {
         const val EXTRA_WAKE = "wake"
+        const val ACTION_TALK = "app.freya.android.TALK"
         private const val RC_MIC = 1; private const val RC_GEO = 2; private const val RC_FIRST = 3
     }
 
@@ -68,7 +69,7 @@ class MainActivity : Activity() {
     override fun onCreate(b: Bundle?) {
         super.onCreate(b)
         Channels.ensure(this)
-        val wake = intent.getBooleanExtra(EXTRA_WAKE, false)
+        val wake = isWake(intent)
         if (wake) overLock(true)
 
         web = WebView(this)
@@ -87,7 +88,14 @@ class MainActivity : Activity() {
         }
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(web, false)
-        web.addJavascriptInterface(Bridge(), "FreyaAndroid")
+        web.addJavascriptInterface(FreyaBridge(this, { onOurSite }) { on ->
+            inSession = on
+            runOnUiThread {
+                volumeControlStream = if (on) AudioManager.STREAM_VOICE_CALL else AudioManager.USE_DEFAULT_STREAM_TYPE
+                if (on) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            }
+        }, "FreyaAndroid")
         // Normal https downloads (if any) go through Android's download manager into Downloads.
         web.setDownloadListener { url, ua, cd, mime, _ ->
             try {
@@ -139,13 +147,15 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun isWake(i: Intent?) = i != null && (i.getBooleanExtra(EXTRA_WAKE, false) || i.action == ACTION_TALK)
+
     private fun overLock(on: Boolean) {
         setShowWhenLocked(on); setTurnScreenOn(on)
     }
 
     override fun onNewIntent(i: Intent) {
         super.onNewIntent(i); setIntent(i)
-        if (i.getBooleanExtra(EXTRA_WAKE, false)) {
+        if (isWake(i)) {
             overLock(true)
             web.evaluateJavascript("window.freyaWake ? window.freyaWake() : location.replace('/?wake=1')", null)
         }
@@ -182,56 +192,4 @@ class MainActivity : Activity() {
         }
     }
 
-    /** window.FreyaAndroid — only answers while the FREYA site itself is loaded. */
-    inner class Bridge {
-        private fun ok() = onOurSite
-        @JavascriptInterface fun isApp(): Boolean = true
-        @JavascriptInterface fun version(): String = packageManager.getPackageInfo(packageName, 0).versionName ?: ""
-
-        @JavascriptInterface fun setAlarm(at: Double, label: String?): String {
-            if (!ok()) return err("not allowed")
-            val t = at.toLong()
-            if (t < System.currentTimeMillis() - 1000) return err("time is in the past")
-            if (t > System.currentTimeMillis() + 400L * 86_400_000L) return err("too far ahead")
-            val a = AlarmScheduler.set(this@MainActivity, t, label?.ifBlank { null } ?: "Alarm")
-            return a.json().put("ok", true).put("exact", AlarmScheduler.canExact(this@MainActivity)).toString()
-        }
-        @JavascriptInterface fun cancelAlarm(id: String?): String {
-            if (!ok()) return err("not allowed")
-            val list = AlarmStore.all(this@MainActivity)
-            val targets = if (id == null || id == "all") list else list.filter { it.id.toString() == id }
-            targets.forEach { AlarmScheduler.remove(this@MainActivity, it.id) }
-            return JSONObject().put("ok", targets.isNotEmpty()).put("cancelled", targets.size).toString()
-        }
-        @JavascriptInterface fun listAlarms(): String {
-            if (!ok()) return "[]"
-            val arr = JSONArray(); AlarmStore.all(this@MainActivity).forEach { arr.put(it.json()) }; return arr.toString()
-        }
-        @JavascriptInterface fun sessionActive(on: Boolean) {
-            inSession = on
-            runOnUiThread {
-                volumeControlStream = if (on) AudioManager.STREAM_VOICE_CALL else AudioManager.USE_DEFAULT_STREAM_TYPE
-                if (on) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-                else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-            }
-            if (on) WakeWordService.pause()
-        }
-        @JavascriptInterface fun wakeWordEnabled(): Boolean = Prefs.wakeEnabled(this@MainActivity)
-        @JavascriptInterface fun setWakeWord(on: Boolean) {
-            if (!ok()) return
-            Prefs.setWake(this@MainActivity, on)
-            runOnUiThread { if (on) WakeWordService.tryStart(this@MainActivity, startPaused = true) else WakeWordService.stop(this@MainActivity) }
-        }
-        @JavascriptInterface fun saveFile(b64: String, name: String?, mime: String?): String {
-            if (!ok()) return err("not allowed")
-            return try {
-                val bytes = android.util.Base64.decode(b64, android.util.Base64.DEFAULT)
-                if (bytes.size > 25_000_000) return err("file too large")
-                val uri = FileSaver.save(this@MainActivity, bytes, name ?: "FREYA-file", mime ?: "application/octet-stream")
-                JSONObject().put("ok", true).put("uri", uri.toString()).toString()
-            } catch (e: Exception) { err("could not save: " + (e.message ?: "error")) }
-        }
-        @JavascriptInterface fun openSettings() { runOnUiThread { startActivity(Intent(this@MainActivity, SettingsActivity::class.java)) } }
-        private fun err(m: String) = JSONObject().put("ok", false).put("error", m).toString()
-    }
 }

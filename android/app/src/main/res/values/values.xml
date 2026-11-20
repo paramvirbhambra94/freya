@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
   <string name="app_name">FREYA</string>
+  <string name="talk">Talk to FREYA</string>
   <color name="bg">#0B0805</color>
   <color name="gold">#E8B45A</color>
   <style name="Theme.Freya" parent="@android:style/Theme.DeviceDefault.NoActionBar">

@@ -116,3 +116,12 @@ a.btn{display:inline-block;text-decoration:none;border-radius:22px;padding:11px 
 #volbtn{width:36px;height:36px;padding:0;border-radius:50%;background:rgba(40,26,10,.6);border:1px solid rgba(232,180,90,.3);color:var(--gold);font-size:15px;font-weight:400}
 #volr{width:140px;accent-color:#e8b45a}
 #volr[hidden]{display:none}
+/* Android floating panel */
+body.mini main{flex-direction:row;justify-content:flex-start;gap:16px;padding:10px 14px}
+body.mini .stage{width:76px;height:76px;flex:none}
+body.mini .orb{box-shadow:0 0 24px 4px rgba(232,180,90,.4)}
+body.mini .info{text-align:left;justify-items:start;gap:6px}
+body.mini h1,body.mini #bg,body.mini #top,body.mini #mbtn,body.mini #vol,body.mini #appbtn,body.mini #redo,body.mini #notify,body.mini #gchip,body.mini #glink,body.mini #textbar{display:none!important}
+body.mini #captions{min-height:0;max-width:none}
+body.mini #captions .her{font-size:14px}
+html:has(body.mini),body.mini{background:transparent}
