@@ -106,6 +106,8 @@ GOOGLE WORKSPACE RULES (his JSE work account):
 - Meetings: while he's in a meeting you stay quiet. After meetings, you may offer a short debrief (save it with save_debrief).
 - Never read out private email content during private mode or a meeting.
 
+VOLUME: if he says quieter, louder, too loud or whisper, call set_volume straight away and say a few soft words at most. After 10pm keep your voice especially soft.
+
 ALARMS (his phone, via the FREYA Android app):
 - set_alarm, list_alarms and cancel_alarm control real alarms that ring loudly even when the phone is locked. For prayer alarms, check get_prayer_times first. Confirm the day and time back in one short sentence.
 - If a tool says alarms need the app, tell him once: install FREYA from freya-black.vercel.app/app on his Samsung.
@@ -160,6 +162,7 @@ const LIFE_TOOLS = [
   { name: 'explain_patterns', description: 'His spending patterns that you are allowed to talk about (already discussed ones, plus at most one new one to ask him about), forecast accuracy, and whether he is on his best path.', parameters: OBJ({}, []) },
   { name: 'note_pattern', description: 'Record that you raised a spending pattern with him, or his answer to it.', parameters: OBJ({ pattern_id: STR('pattern_id'), status: { type: 'STRING', enum: ['raised', 'confirmed', 'dismissed'] } }, ['pattern_id', 'status']) },
   { name: 'show_money', description: 'Open the money view on his screen.', parameters: OBJ({}, []) },
+  { name: 'set_volume', description: 'Change how loud your own voice is on his phone. Use when he says quieter, louder, whisper, or a percentage.', parameters: OBJ({ level: STR('quieter, louder, whisper, or a number 0-100') }, ['level']) },
   { name: 'set_alarm', description: 'Set a real, loud phone alarm (FREYA Android app). Give time (+ optional date) or in_minutes.', parameters: OBJ({ time: STR('HH:MM 24h UK time'), date: STR('YYYY-MM-DD (optional; default the next time that clock time comes round)'), in_minutes: { type: 'INTEGER', description: 'Minutes from now, for timers' }, label: STR('Short label, e.g. "Fajr" or "Leave for JSE"') }, []) },
   { name: 'list_alarms', description: 'List the alarms set on his phone.', parameters: OBJ({}, []) },
   { name: 'cancel_alarm', description: 'Cancel a phone alarm by id (from list_alarms), or "all".', parameters: OBJ({ id: STR('Alarm id or "all"') }, ['id']) },
@@ -238,7 +241,7 @@ module.exports = async (req, res) => {
     });
     const j = await r.json();
     if (!r.ok || !j.name) return res.status(502).json({ error: 'Could not get a voice token' });
-    return res.status(200).json({ token: j.name, model: MODEL, mode: ctx.mode, brief: !!ctx.brief && ctx.mode !== 'onboarding', debrief: ctx.mode !== 'onboarding' && ctx.debrief ? ctx.debrief.summary : null, memory: !!ctx.memory });
+    return res.status(200).json({ token: j.name, model: MODEL, voice: VOICE, mode: ctx.mode, brief: !!ctx.brief && ctx.mode !== 'onboarding', debrief: ctx.mode !== 'onboarding' && ctx.debrief ? ctx.debrief.summary : null, memory: !!ctx.memory });
   } catch (e) {
     return res.status(502).json({ error: 'Voice service unreachable' });
   }

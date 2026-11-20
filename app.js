@@ -13,6 +13,17 @@ const setBusy = b => document.body.classList.toggle('busy', !!b);
 let idleMsg = greeting + ' Tap the orb to talk.';
 setStatus(idleMsg);
 
+// ---------- her volume (remembered; quieter at night 22:00–07:00) ----------
+let outGain = null;
+const isNight = () => { const h = new Date().getHours(); return h >= 22 || h < 7; };
+const volKey = () => isNight() ? 'freyaVolNight' : 'freyaVol';
+function curVol() { const v = parseFloat(localStorage.getItem(volKey())); return isNaN(v) ? (isNight() ? 0.25 : 0.5) : Math.max(0, Math.min(1, v)); }
+function setVol(v) {
+  v = Math.max(0, Math.min(1, Math.round(v * 100) / 100)); localStorage.setItem(volKey(), String(v));
+  if (outGain && outCtx) outGain.gain.setTargetAtTime(v, outCtx.currentTime, 0.05);
+  const r = document.getElementById('volr'); if (r) r.value = Math.round(v * 100);
+  return v;
+}
 let ws = null, micCtx = null, micStream = null, micNode = null, outCtx = null, analyser = null;
 let nextTime = 0, sources = new Set(), active = false, connecting = false, model = null, mode = 'companion';
 let briefPending = new URLSearchParams(location.search).has('brief');
@@ -139,6 +150,11 @@ async function handleTool(f) {
       try { const loc = await here(); const r = await post('/api/prayers', { action: 'travel', ...loc }); loadLife(); toast('Travelling · local times'); return r.ok ? 'using calculated times for his location' : 'failed'; }
       catch (e) { return 'Location is blocked; could not switch to travel times.'; }
     }
+    if (f.name === 'set_volume') {
+      const c = curVol(), l = a.level;
+      const v = setVol(l === 'quieter' ? c * 0.6 : l === 'louder' ? Math.max(0.1, c * 1.5) : l === 'whisper' ? 0.12 : (Number(l) || 50) / 100);
+      toast('Her volume · ' + Math.round(v * 100) + '%'); return 'Volume now ' + Math.round(v * 100) + '%.';
+    }
     if (f.name === 'set_alarm' || f.name === 'list_alarms' || f.name === 'cancel_alarm') return alarmTool(f.name, a);
     if (f.name === 'connect_google') { showGoogleChip(true); return 'The Connect Google button is on his screen; ask him to tap it and sign in with his JSE account.'; }
     if (f.name === 'get_calendar') { const r = await getJ('/api/google/calendar?range=' + encodeURIComponent(a.range || 'today')); return r.ok ? JSON.stringify(r.events) : (r.error || 'unavailable'); }
@@ -207,7 +223,9 @@ async function connect(isReconnect) {
   await new Promise((resolve, reject) => {
     const sock = new WebSocket(WS_URL + '?access_token=' + encodeURIComponent(j.token));
     const to = setTimeout(() => reject(new Error('Connection timed out. Tap to try again.')), 12000);
-    sock.onopen = () => sock.send(JSON.stringify({ setup: { model } }));
+    // The voice must be sent in the client setup too: a bare { model } setup falls back to Gemini's default voice.
+    const voiceName = j.voice || 'Sulafat';
+    sock.onopen = () => sock.send(JSON.stringify({ setup: { model, generationConfig: { responseModalities: ['AUDIO'], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName } } } } } }));
     sock.onerror = () => { clearTimeout(to); reject(new Error("Couldn't connect to her voice. Tap to try again.")); };
     sock.onclose = e => { clearTimeout(to); reject(new Error(e.reason ? 'Disconnected: ' + e.reason : "Couldn't connect. Tap to try again.")); };
     sock.onmessage = async ev => {
@@ -270,7 +288,8 @@ async function start() {
     outCtx = new AudioContext({ sampleRate: 24000 });
     micCtx = new AudioContext({ sampleRate: 16000 });
     outCtx.resume(); micCtx.resume();
-    analyser = outCtx.createAnalyser(); analyser.fftSize = 256; analyser.connect(outCtx.destination);
+    analyser = outCtx.createAnalyser(); analyser.fftSize = 256;
+    outGain = outCtx.createGain(); outGain.gain.value = curVol(); analyser.connect(outGain); outGain.connect(outCtx.destination);
     let micOk = true;
     try { micStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } }); }
     catch (e) { micOk = false; }
@@ -304,7 +323,7 @@ function stop(msg) {
   micStream && micStream.getTracks().forEach(t => t.stop()); micStream = null;
   sources.forEach(x => { try { x.stop(); } catch (e) {} }); sources.clear(); nextTime = 0;
   micCtx && micCtx.close().catch(() => {}); micCtx = null;
-  outCtx && outCtx.close().catch(() => {}); outCtx = null; analyser = null;
+  outCtx && outCtx.close().catch(() => {}); outCtx = null; analyser = null; outGain = null;
   $('textbar').hidden = true; $('redo').hidden = !(onboardingState.configured && onboardingState.status === 'complete');
   setState('idle'); setStatus(msg || idleMsg);
 }
@@ -626,3 +645,12 @@ $('mclose').addEventListener('click', () => { $('money').hidden = true; });
 
 // ---------- Android app settings ----------
 if (APP) { const ab = $('appbtn'); if (ab) { ab.hidden = false; ab.addEventListener('click', () => FreyaAndroid.openSettings()); } }
+
+// ---------- volume control ----------
+(() => {
+  const b = $('volbtn'), r = $('volr'); if (!b || !r) return;
+  r.value = Math.round(curVol() * 100);
+  b.addEventListener('click', () => { r.hidden = !r.hidden; r.value = Math.round(curVol() * 100); });
+  r.addEventListener('input', () => setVol(r.value / 100));
+  r.addEventListener('change', () => { toast('Her volume · ' + r.value + '%' + (isNight() ? ' (night)' : '')); setTimeout(() => { r.hidden = true; }, 1500); });
+})();

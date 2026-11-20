@@ -34,6 +34,7 @@ class AlarmService : Service() {
     private var vib: Vibrator? = null
     private var wl: PowerManager.WakeLock? = null
     private var label = "Alarm"
+    private var savedAlarmVol = -1
     private val h = Handler(Looper.getMainLooper())
     private val timeout = Runnable { finish() }
 
@@ -78,7 +79,8 @@ class AlarmService : Service() {
         // Make sure it is actually loud: lift the alarm volume to at least 80%.
         val am = getSystemService(AudioManager::class.java)
         val max = am.getStreamMaxVolume(AudioManager.STREAM_ALARM)
-        if (am.getStreamVolume(AudioManager.STREAM_ALARM) < max * 8 / 10) try { am.setStreamVolume(AudioManager.STREAM_ALARM, max * 8 / 10, 0) } catch (e: Exception) {}
+        val cur = am.getStreamVolume(AudioManager.STREAM_ALARM)
+        if (cur < max * 8 / 10) try { if (savedAlarmVol < 0) savedAlarmVol = cur; am.setStreamVolume(AudioManager.STREAM_ALARM, max * 8 / 10, 0) } catch (e: Exception) {}
 
         player?.release()
         val uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM) ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
@@ -101,6 +103,8 @@ class AlarmService : Service() {
         try { player?.stop() } catch (e: Exception) {}
         player?.release(); player = null
         vib?.cancel()
+        // Put the alarm volume back how he had it (only the alarm stream is ever touched).
+        if (savedAlarmVol >= 0) { try { getSystemService(AudioManager::class.java).setStreamVolume(AudioManager.STREAM_ALARM, savedAlarmVol, 0) } catch (e: Exception) {}; savedAlarmVol = -1 }
         wl?.let { if (it.isHeld) it.release() }
         ringing = null
         onStopped?.invoke()

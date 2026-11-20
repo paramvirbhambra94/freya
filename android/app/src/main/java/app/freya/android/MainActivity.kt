@@ -7,6 +7,8 @@ import android.app.NotificationManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
+import android.media.AudioManager
+import android.view.KeyEvent
 import android.net.Uri
 import android.os.Bundle
 import android.view.WindowManager
@@ -34,6 +36,22 @@ class MainActivity : Activity() {
     private var geoCb: GeolocationPermissions.Callback? = null
     private var geoOrigin: String? = null
     @Volatile private var onOurSite = true
+    @Volatile private var inSession = false
+
+    /** While she's talking, the mic puts Android in call mode, so her voice plays on the call stream. Point the volume keys at it. */
+    private fun liveStream(): Int {
+        val am = getSystemService(AudioManager::class.java)
+        return if (inSession || am.mode == AudioManager.MODE_IN_COMMUNICATION) AudioManager.STREAM_VOICE_CALL else AudioManager.STREAM_MUSIC
+    }
+
+    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        if (keyCode == KeyEvent.KEYCODE_VOLUME_UP || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
+            val dir = if (keyCode == KeyEvent.KEYCODE_VOLUME_UP) AudioManager.ADJUST_RAISE else AudioManager.ADJUST_LOWER
+            getSystemService(AudioManager::class.java).adjustStreamVolume(liveStream(), dir, AudioManager.FLAG_SHOW_UI)
+            return true
+        }
+        return super.onKeyDown(keyCode, event)
+    }
 
     @SuppressLint("SetJavaScriptEnabled", "JavascriptInterface", "WrongConstant")
     override fun onCreate(b: Bundle?) {
@@ -143,7 +161,7 @@ class MainActivity : Activity() {
     inner class Bridge {
         private fun ok() = onOurSite
         @JavascriptInterface fun isApp(): Boolean = true
-        @JavascriptInterface fun version(): String = "1.0.0"
+        @JavascriptInterface fun version(): String = "1.0.1"
 
         @JavascriptInterface fun setAlarm(at: Double, label: String?): String {
             if (!ok()) return err("not allowed")
@@ -165,7 +183,9 @@ class MainActivity : Activity() {
             val arr = JSONArray(); AlarmStore.all(this@MainActivity).forEach { arr.put(it.json()) }; return arr.toString()
         }
         @JavascriptInterface fun sessionActive(on: Boolean) {
+            inSession = on
             runOnUiThread {
+                volumeControlStream = if (on) AudioManager.STREAM_VOICE_CALL else AudioManager.USE_DEFAULT_STREAM_TYPE
                 if (on) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                 else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             }
