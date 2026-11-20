@@ -410,7 +410,11 @@ $('pdf').addEventListener('click', async () => {
     for (const s of currentPlan.sections || []) { line(s.area, 13, [168, 100, 28], 2); line(s.focus, 11, [40, 30, 20], 2); for (const a of s.actions || []) line('•  ' + a, 11, [40, 30, 20]); y += 10; }
     line('My pledge', 13, [168, 100, 28], 2); line($('pledge').value, 11, [40, 30, 20], 10);
     if (sigDirty) { if (y > 700) { doc.addPage(); y = 60; } doc.addImage($('sig').toDataURL('image/png'), 'PNG', M, y, 200, 200 * $('sig').height / $('sig').width); y += 200 * $('sig').height / $('sig').width + 10; line('Signed by Eesah', 9, [120, 110, 100]); }
-    doc.save('FREYA-life-plan.pdf');
+    if (APP && window.FreyaAndroid.saveFile) {
+      // Android app: the WebView can't do blob downloads, so hand the bytes to the app to save in Downloads.
+      const r = JSON.parse(FreyaAndroid.saveFile(doc.output('datauristring').split(',')[1], 'FREYA-life-plan.pdf', 'application/pdf'));
+      toast(r.ok ? 'Saved to Downloads · FREYA-life-plan.pdf' : (r.error || "Couldn't save the PDF."));
+    } else doc.save('FREYA-life-plan.pdf');
   } catch (e) { toast(e.message || "Couldn't make the PDF."); }
 });
 $('commit').addEventListener('click', async () => {

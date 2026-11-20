@@ -88,6 +88,20 @@ class MainActivity : Activity() {
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(web, false)
         web.addJavascriptInterface(Bridge(), "FreyaAndroid")
+        // Normal https downloads (if any) go through Android's download manager into Downloads.
+        web.setDownloadListener { url, ua, cd, mime, _ ->
+            try {
+                val u = Uri.parse(url)
+                if (u.scheme != "https") return@setDownloadListener
+                val name = android.webkit.URLUtil.guessFileName(url, cd, mime)
+                val req = android.app.DownloadManager.Request(u).setMimeType(mime).addRequestHeader("User-Agent", ua)
+                    .addRequestHeader("Cookie", CookieManager.getInstance().getCookie(url) ?: "")
+                    .setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                    .setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, name)
+                getSystemService(android.app.DownloadManager::class.java).enqueue(req)
+                android.widget.Toast.makeText(this, "Downloading $name", android.widget.Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) {}
+        }
 
         web.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(v: WebView, r: WebResourceRequest): Boolean {
@@ -207,6 +221,15 @@ class MainActivity : Activity() {
             if (!ok()) return
             Prefs.setWake(this@MainActivity, on)
             runOnUiThread { if (on) WakeWordService.tryStart(this@MainActivity, startPaused = true) else WakeWordService.stop(this@MainActivity) }
+        }
+        @JavascriptInterface fun saveFile(b64: String, name: String?, mime: String?): String {
+            if (!ok()) return err("not allowed")
+            return try {
+                val bytes = android.util.Base64.decode(b64, android.util.Base64.DEFAULT)
+                if (bytes.size > 25_000_000) return err("file too large")
+                val uri = FileSaver.save(this@MainActivity, bytes, name ?: "FREYA-file", mime ?: "application/octet-stream")
+                JSONObject().put("ok", true).put("uri", uri.toString()).toString()
+            } catch (e: Exception) { err("could not save: " + (e.message ?: "error")) }
         }
         @JavascriptInterface fun openSettings() { runOnUiThread { startActivity(Intent(this@MainActivity, SettingsActivity::class.java)) } }
         private fun err(m: String) = JSONObject().put("ok", false).put("error", m).toString()
