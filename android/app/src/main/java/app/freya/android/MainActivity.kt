@@ -32,12 +32,14 @@ class MainActivity : Activity() {
     companion object {
         const val EXTRA_WAKE = "wake"
         const val ACTION_TALK = "app.freya.android.TALK"
-        private const val RC_MIC = 1; private const val RC_GEO = 2; private const val RC_FIRST = 3; private const val RC_FILE = 4
+        private const val RC_MIC = 1; private const val RC_GEO = 2; private const val RC_FIRST = 3; private const val RC_FILE = 4; private const val RC_CAMFILE = 5
         const val EXTRA_PATH = "path"
     }
 
     private lateinit var web: WebView
     private var pendingMic: PermissionRequest? = null
+    private var pendingRes: Array<String> = emptyArray()
+    private var pendingChooser: WebChromeClient.FileChooserParams? = null
     private var geoCb: GeolocationPermissions.Callback? = null
     private var geoOrigin: String? = null
     private var fileCb: ValueCallback<Array<Uri>>? = null
@@ -155,18 +157,23 @@ class MainActivity : Activity() {
             override fun onPageFinished(v: WebView, url: String?) { pageLoaded = true; fireWakeIfReady() }
         }
         web.webChromeClient = object : WebChromeClient() {
+            // Mic for her voice, camera for live camera. Only our own site; asks Android for whatever is missing.
             override fun onPermissionRequest(req: PermissionRequest) {
                 runOnUiThread {
-                    if (req.origin.host != HOST || !req.resources.contains(PermissionRequest.RESOURCE_AUDIO_CAPTURE)) { req.deny(); return@runOnUiThread }
-                    if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) req.grant(arrayOf(PermissionRequest.RESOURCE_AUDIO_CAPTURE))
-                    else { pendingMic = req; requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), RC_MIC) }
+                    val want = req.resources.filter { it == PermissionRequest.RESOURCE_AUDIO_CAPTURE || it == PermissionRequest.RESOURCE_VIDEO_CAPTURE }.toTypedArray()
+                    if (req.origin.host != HOST || want.isEmpty()) { req.deny(); return@runOnUiThread }
+                    val missing = want.map { permFor(it) }.filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
+                    if (missing.isEmpty()) req.grant(want)
+                    else { pendingMic?.deny(); pendingMic = req; pendingRes = want; requestPermissions(missing.toTypedArray(), RC_MIC) }
                 }
             }
             // <input type=file> for growth sections: files, gallery, and the camera (photo or short clip).
             override fun onShowFileChooser(v: WebView, cb: ValueCallback<Array<Uri>>, params: FileChooserParams): Boolean {
                 if (!onOurSite) return false
                 fileCb?.onReceiveValue(null); fileCb = cb
-                return try { startActivityForResult(chooser(params), RC_FILE); true } catch (e: Exception) { fileCb = null; false }
+                // Declaring CAMERA means camera capture intents need it granted first.
+                if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) { pendingChooser = params; requestPermissions(arrayOf(Manifest.permission.CAMERA), RC_CAMFILE); return true }
+                return launchChooser(params, true)
             }
             override fun onGeolocationPermissionsShowPrompt(origin: String, cb: GeolocationPermissions.Callback) {
                 if (Uri.parse(origin).host != HOST) { cb.invoke(origin, false, false); return }
@@ -185,6 +192,11 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun permFor(res: String) = if (res == PermissionRequest.RESOURCE_VIDEO_CAPTURE) Manifest.permission.CAMERA else Manifest.permission.RECORD_AUDIO
+
+    private fun launchChooser(params: WebChromeClient.FileChooserParams, cam: Boolean): Boolean =
+        try { startActivityForResult(chooser(params, cam), RC_FILE); true } catch (e: Exception) { fileCb?.onReceiveValue(null); fileCb = null; true }
+
     private fun mimesFor(accept: Array<String>): Array<String> = accept.flatMap { it.split(',') }.map { it.trim().lowercase() }.filter { it.isNotEmpty() }.map {
         when (it) { ".txt" -> "text/plain"; ".zip" -> "application/zip"; ".pdf" -> "application/pdf"; else -> it }
     }.distinct().toTypedArray()
@@ -201,17 +213,17 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun chooser(p: WebChromeClient.FileChooserParams): Intent {
+    private fun chooser(p: WebChromeClient.FileChooserParams, cam: Boolean = true): Intent {
         camFile = null
         val mimes = mimesFor(p.acceptTypes)
         val img = mimes.isEmpty() || mimes.any { it.startsWith("image") }
         val vid = mimes.any { it.startsWith("video") }
-        if (p.isCaptureEnabled && (img || vid)) return camIntent(video = vid && !img)
+        if (cam && p.isCaptureEnabled && (img || vid)) return camIntent(video = vid && !img)
         val pick = Intent(Intent.ACTION_GET_CONTENT).addCategory(Intent.CATEGORY_OPENABLE).setType(if (mimes.size == 1) mimes[0] else "*/*")
         if (mimes.size > 1) pick.putExtra(Intent.EXTRA_MIME_TYPES, mimes)
         if (p.mode == WebChromeClient.FileChooserParams.MODE_OPEN_MULTIPLE) pick.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
         val extra = mutableListOf<Intent>()
-        if (img) extra.add(camIntent(false))
+        if (cam && img) extra.add(camIntent(false))
         return Intent.createChooser(pick, "Add to FREYA").apply { if (extra.isNotEmpty()) putExtra(Intent.EXTRA_INITIAL_INTENTS, extra.toTypedArray()) }
     }
 
@@ -277,7 +289,14 @@ class MainActivity : Activity() {
         super.onRequestPermissionsResult(rc, perms, res)
         val ok = res.isNotEmpty() && res[0] == PackageManager.PERMISSION_GRANTED
         when (rc) {
-            RC_MIC -> { pendingMic?.let { if (ok) it.grant(arrayOf(PermissionRequest.RESOURCE_AUDIO_CAPTURE)) else it.deny() }; pendingMic = null }
+            RC_MIC -> {
+                pendingMic?.let { r ->
+                    val granted = pendingRes.filter { checkSelfPermission(permFor(it)) == PackageManager.PERMISSION_GRANTED }.toTypedArray()
+                    if (granted.isNotEmpty()) r.grant(granted) else r.deny()
+                }
+                pendingMic = null; pendingRes = emptyArray()
+            }
+            RC_CAMFILE -> { val p = pendingChooser; pendingChooser = null; if (p != null) launchChooser(p, ok) else { fileCb?.onReceiveValue(null); fileCb = null } }
             RC_GEO -> { geoCb?.invoke(geoOrigin, ok, false); geoCb = null }
             RC_FIRST -> startActivity(Intent(this, SettingsActivity::class.java).putExtra("setup", true))
         }

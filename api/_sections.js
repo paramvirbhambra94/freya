@@ -94,9 +94,12 @@ async function gen(parts, schema, { models = ['gemini-flash-latest', 'gemini-fla
   const key = process.env.GEMINI_API_KEY; if (!key) throw new Error('no_gemini_key');
   const body = JSON.stringify({ contents: [{ role: 'user', parts }], generationConfig: { temperature, ...(schema ? { responseMimeType: 'application/json', responseSchema: schema } : {}) } });
   let last = 'gemini_failed';
-  for (const m of models) {
+  for (const m of models.flatMap(x => [x, x + '#retry'])) {
+    if (m.endsWith('#retry') && !/gemini_(429|500|503)/.test(last)) continue; // one quick retry when Gemini is briefly overloaded
+    if (m.endsWith('#retry')) await new Promise(r => setTimeout(r, 1500));
+    const model = m.replace('#retry', '');
     try {
-      const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-goog-api-key': key }, body, signal: AbortSignal.timeout(timeout) });
+      const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-goog-api-key': key }, body, signal: AbortSignal.timeout(timeout) });
       const j = await r.json().catch(() => ({}));
       if (!r.ok || !j.candidates || !j.candidates[0].content) { last = 'gemini_' + r.status; continue; }
       const t = j.candidates[0].content.parts.filter(p => p.text).map(p => p.text).join('');
@@ -578,4 +581,4 @@ async function handle(req, b) {
   }
 }
 
-module.exports = { handle, tick, context, insightsFor, advance, analyse, sweep, META, ORDER, STEPS, BUILD_SECONDS, _test: { fallbackConfig, runStep } };
+module.exports = { handle, tick, context, insightsFor, advance, analyse, sweep, gen, META, ORDER, STEPS, BUILD_SECONDS, _test: { fallbackConfig, runStep } };

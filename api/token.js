@@ -6,9 +6,18 @@ const M = require('./_money');
 const PL = require('./_patterns');
 const PH = require('./_phone');
 const SEC = require('./_sections');
+const CV = require('./_convo');
 // Mints a short-lived, single-use Gemini Live token. The API key never leaves the server.
 const MODEL = 'models/gemini-3.8-live';
 const VOICE = 'Sulafat';
+
+const EYES = `
+
+YOUR EYES (camera and photos):
+- When he opens live camera, his phone camera reaches you as low-rate frames (about one a second). He is showing you his world. Look properly. Say briefly what you notice and give practical, specific suggestions, one or two at a time, like a friend standing next to him (for a messy room: what to clear first, where the desk should go relative to the window, light and sockets, storage and cable fixes). Don't narrate every frame; speak when he asks or when something useful stands out, then wait. If he moves the camera, keep up with what's new.
+- When he shares a photo or a video (stills from the clip, in order), it arrives with a cue. Respond to what he most likely wants: one line on what you see, then the most useful suggestions.
+- Never identify people from their faces. Describe, don't judge his space or body; be direct and kind.
+- If what he shows fits one of his growth sections (meal, workout or physique: body; document, notes or work material: work; receipt, warranty or paperwork: vault; chat screenshot: connections; journal, Qur'an or prayer: mind), offer ONCE to save it there. Only if he says yes, call save_to_section.`;
 
 function persona(ctx = {}) {
   const now = new Date().toLocaleString('en-GB', { timeZone: 'Europe/London', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' });
@@ -33,12 +42,14 @@ MEMORY: When you learn something durable about Eesah (a fact, preference, goal, 
 LIMITS FOR NOW: you can see his prayer times, habits and streaks, and you can log prayers, set private mode and his brief time, and send him phone reminders. You can see his bank accounts read-only (balances, spending, bills, simulations); you can never move money or make payments. If he has switched on phone awareness, you can see summaries of his phone time, steps and notification counts (never message content). If he asks for something you can't do yet, say so in one line and offer what you can do. Be respectful of his faith.`;
   if (ctx.profile && Object.keys(ctx.profile).length) {
     p += '\n\nWHAT YOU ALREADY KNOW ABOUT EESAH (pre-loaded; treat as true unless he corrects it):\n' +
-      Object.entries(ctx.profile).filter(([k]) => !['onboarding_status', 'onboarding_completed_at', 'life_plan', 'companion_days', 'last_companion_day', 'pattern_last_intro', 'private_until'].includes(k) && !/^(money_|google_|mosque_cache)/.test(k)).map(([k, v]) => `- ${k}: ${v}`).join('\n');
+      Object.entries(ctx.profile).filter(([k]) => !['onboarding_status', 'onboarding_completed_at', 'life_plan', 'companion_days', 'last_companion_day', 'pattern_last_intro', 'private_until'].includes(k) && !/^(money_|google_|mosque_cache|convo_)/.test(k)).map(([k, v]) => `- ${k}: ${v}`).join('\n');
     if (ctx.profile.life_plan) p += '\n\nHIS LIFE PLAN FROM ONBOARDING (hold him to it, gently but firmly):\n' + ctx.profile.life_plan.slice(0, 6000);
   }
   if (ctx.answers && ctx.answers.length) p += '\n\nWHAT HE TOLD YOU DURING ONBOARDING:\n' + ctx.answers.map(a => `- [${a.topic}] ${a.question ? a.question + ' -> ' : ''}${a.answer}`).join('\n').slice(0, 12000);
   if (ctx.memories && ctx.memories.length) p += '\n\nRECENT MEMORIES (newest first):\n' + ctx.memories.map(m => `- [${m.category}] ${m.content}`).join('\n').slice(0, 8000);
   if (ctx.life) p += lifeBlock(ctx.life, ctx);
+  if (ctx.convo && mode !== 'onboarding') p += CV.block(ctx.convo, ctx.cont);
+  if (mode !== 'onboarding') p += EYES;
   if (ctx.brief && mode !== 'onboarding') p += `
 
 HE JUST OPENED HIS MORNING BRIEF. Speak first, now. Greet him in one line, then: today's prayers with jama'ah times (lead with the next one), today's calendar (what's fixed, and any clashes with jama'ah times), any important unread email worth his attention (one line each, max three), ONE line on money (balance, anything due or off-pace, or progress to his savings goal; skip numbers he didn't ask for if nothing's notable; only mention a spending pattern if it is in PATTERNS HE ALREADY KNOWS), how his prayers and habits went yesterday and any streaks worth naming, at most ONE short phone/activity line if PHONE AWARENESS has a yesterday summary (e.g. steps, or late-night use) framed kindly and only if it's notable or already discussed, then help him set two or three priorities for today (ask for his top one if you don't know it), and one habit nudge. Under ninety seconds. End with one short question.`;
@@ -150,6 +161,8 @@ const TOOL_FINISH = { name: 'finish_onboarding', description: 'Call once, when o
 
 const BOOL = d => ({ type: 'BOOLEAN', description: d });
 const LIFE_TOOLS = [
+  { name: 'recall_conversations', description: "Search everything he and you have said in past conversations (voice, typed and live camera). Use when he asks what he said or what you discussed about something, or refers back to a past conversation you don't have in front of you.", parameters: OBJ({ query: STR('Keywords for what to find, e.g. "desk office room"'), days: { type: 'NUMBER', description: 'How far back to look in days (default 30, max 365).' } }, ['query']) },
+  { name: 'save_to_section', description: 'Save what he just showed you (or a short note about it) into one of his growth sections, so its insight is kept there. Only after he says yes.', parameters: OBJ({ section: { type: 'STRING', enum: ['body', 'connections', 'mind', 'work', 'vault'] }, note: STR('One line describing what it is, e.g. "Lunch: chicken salad and rice"') }, ['section', 'note']) },
   { name: 'section_insights', description: "His growth sections (body, connections, mind, work, vault): status, goals, coaching plan, recent insights and tracked metrics. Use when he asks about progress in one of those areas, or to coach him with what his uploads showed.", parameters: OBJ({ section: { type: 'STRING', enum: ['body', 'connections', 'mind', 'work', 'vault'] } }, ['section']) },
   { name: 'get_prayer_times', description: "Get today's and tomorrow's prayer and jama'ah times and the next prayer.", parameters: OBJ({ day: { type: 'STRING', enum: ['today', 'tomorrow'] } }, []) },
   { name: 'log_prayer', description: 'Log one of the five daily prayers for today.', parameters: OBJ({ prayer: { type: 'STRING', enum: ['fajr', 'dhuhr', 'asr', 'maghrib', 'isha'] }, status: { type: 'STRING', enum: ['prayed', 'jamaah', 'qada', 'missed', 'clear'] } }, ['prayer', 'status']) },
@@ -206,6 +219,7 @@ async function loadContext() {
       ctx.patterns = await PL.view(profile); ctx.patterns.drift = profile.onboarding_status === 'complete' ? await PL.driftCheck(md).catch(() => null) : null; } } catch (e) {}
     ctx.phone = await PH.view(profile).catch(() => null);
     ctx.sections = await SEC.context().catch(() => null);
+    ctx.convo = await CV.context().catch(() => null);
     if (life && life.google && life.google.connected) {
       const now = new Date().toISOString();
       const [cal, deb, notes] = await Promise.all([
@@ -227,6 +241,8 @@ module.exports = async (req, res) => {
   const ctx = await loadContext();
   const wanted = (req.query && req.query.mode) || '';
   const resume = req.query && typeof req.query.resume === 'string' && /^[\w-]{8,200}$/.test(req.query.resume) ? req.query.resume : null;
+  const why = req.query && { dropped: 'the connection dropped', background: 'he left the app for a moment', killed: 'the app was closed', panel: 'he moved between the floating panel and the full app', timeout: 'the session timed out', camera: 'the camera view closed' }[req.query.cont];
+  if (why) ctx.cont = { why, ago: Math.max(0, Math.min(600, parseInt(req.query.ago, 10) || 0)) };
 
   const status = (ctx.profile && ctx.profile.onboarding_status) || 'not_started';
   ctx.mode = ctx.memory && (wanted === 'onboarding' || (wanted !== 'companion' && (status === 'not_started' || status === 'in_progress'))) ? 'onboarding' : 'companion';
@@ -254,6 +270,7 @@ module.exports = async (req, res) => {
           model: MODEL,
           generationConfig: {
             responseModalities: ['AUDIO'],
+            mediaResolution: 'MEDIA_RESOLUTION_LOW', // camera frames: low token cost
             speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: VOICE } } }
           },
           systemInstruction: { parts: [{ text: persona(ctx) }] },
@@ -270,7 +287,7 @@ module.exports = async (req, res) => {
     });
     const j = await r.json();
     if (!r.ok || !j.name) return res.status(502).json({ error: 'Could not get a voice token' });
-    return res.status(200).json({ token: j.name, model: MODEL, voice: VOICE, mode: ctx.mode, brief: !!ctx.brief && ctx.mode !== 'onboarding', debrief: ctx.mode !== 'onboarding' && ctx.debrief ? ctx.debrief.summary : null, memory: !!ctx.memory });
+    return res.status(200).json({ token: j.name, model: MODEL, voice: VOICE, mode: ctx.mode, brief: !!ctx.brief && ctx.mode !== 'onboarding', debrief: ctx.mode !== 'onboarding' && ctx.debrief ? ctx.debrief.summary : null, memory: !!ctx.memory, last: ctx.convo && ctx.convo.lastSession ? { sid: ctx.convo.lastSession, at: ctx.convo.lastAt } : null });
   } catch (e) {
     return res.status(502).json({ error: 'Voice service unreachable' });
   }

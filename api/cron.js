@@ -7,6 +7,7 @@ const G = require('./_google');
 const M = require('./_money');
 const PL = require('./_patterns');
 const SEC = require('./_sections');
+const CV = require('./_convo');
 const label = n => n[0].toUpperCase() + n.slice(1);
 
 async function claim(key) {
@@ -54,9 +55,13 @@ module.exports = async (req, res) => {
   const out = [];
   // Every-minute poke while a growth section is building (pg_cron job freya-sections-build): sections only.
   if (req.query && req.query.only === 'sections') { try { return res.status(200).json({ ok: true, sections: await SEC.tick(claim) }); } catch (e) { return res.status(500).json({ error: 'sections failed' }); } }
+  if (req.query && req.query.only === 'convo') { try { return res.status(200).json({ ok: true, convo: await CV.digest({ limit: 2, quietMin: +req.query.quiet >= 0 ? +req.query.quiet : 10 }) }); } catch (e) { return res.status(500).json({ error: 'convo failed' }); } }
   let sections = null;
   try { const t = new Date(); const lw = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', weekday: 'short', hour: '2-digit', hourCycle: 'h23' }).formatToParts(t); const wd = lw.find(p => p.type === 'weekday').value, hr = +lw.find(p => p.type === 'hour').value;
     sections = await SEC.tick(claim, { weeklyNow: wd === 'Mon' && hr >= 4 }); } catch (e) { sections = { error: true }; }
+  // Conversation memory: digest one quiet conversation per tick (facts + rolling summary), prune old turns daily.
+  let convo = null;
+  try { convo = await CV.digest({ limit: 1 }); await CV.prune(claim); } catch (e) { convo = 'error'; }
   try {
     const s = await lifeState();
     // Google: refresh calendar cache, then handle finished meetings (Meet notes -> memory, debrief offers)
@@ -126,6 +131,6 @@ module.exports = async (req, res) => {
         }
       } catch (e) { out.push('money_alerts_failed'); }
     }
-    return res.status(200).json({ ok: true, sent: out, sections, google: meet, money, learn: learn && (learn.error || learn.skipped || 'ok') });
+    return res.status(200).json({ ok: true, sent: out, sections, convo, google: meet, money, learn: learn && (learn.error || learn.skipped || 'ok') });
   } catch (e) { return res.status(500).json({ error: 'cron failed' }); }
 };

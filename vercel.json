@@ -56,6 +56,9 @@
     },
     "api/cron.js": {
       "maxDuration": 60
+    },
+    "api/memory.js": {
+      "maxDuration": 60
     }
   }
 }

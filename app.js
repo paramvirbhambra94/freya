@@ -7,10 +7,24 @@ let forceOnboarding = new URLSearchParams(location.search).has('onboarding');
 
 const h = new Date().getHours();
 const greeting = (h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening') + ', Eesah.';
+// One calm line under her name, chosen once per open to suit the time of day (never the same twice running).
+const LINES = {
+  morning: ["I'm here whenever you're ready.", 'What are we building today?', "Let's make today count.", 'Where shall we start?', "Talk to me, I'm listening."],
+  afternoon: ['What are we building today?', "Talk to me, I'm listening.", "Let's use the day well.", "I'm here whenever you're ready.", "What's on your mind?"],
+  evening: ['Your evening, your pace.', "I'm here whenever you're ready.", 'How did today treat you?', "Talk to me, I'm listening.", "Let's close the day well."],
+  night: ["Late one. I'm still here.", 'Your night, your pace.', "Talk to me, I'm listening.", "What's on your mind?"]
+};
+const dayLine = (() => {
+  const set = LINES[h >= 22 || h < 5 ? 'night' : h < 12 ? 'morning' : h < 18 ? 'afternoon' : 'evening'];
+  let prev = ''; try { prev = localStorage.getItem('freyaLine') || ''; } catch (e) {}
+  const pool = set.filter(l => l !== prev), pick = pool[Math.floor(Math.random() * pool.length)] || set[0];
+  try { localStorage.setItem('freyaLine', pick); } catch (e) {}
+  return pick;
+})();
 const setStatus = t => { statusEl.textContent = t; };
 const setState = s => { orb.dataset.state = s; };
 const setBusy = b => document.body.classList.toggle('busy', !!b);
-let idleMsg = greeting + ' Tap the orb to talk.';
+let idleMsg = greeting + '\n' + dayLine; // two calm lines: greeting, then her invitation
 setStatus(idleMsg);
 
 // ---------- her volume (remembered; quieter at night 22:00–07:00) ----------
@@ -51,6 +65,53 @@ function toast(msg) {
   const t = $('toast'); t.textContent = msg; t.classList.add('on');
   clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('on'), 3200);
 }
+
+// ---------- conversation memory: every turn saved as it happens (survives drops, kills, offline) ----------
+const newSid = () => 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+const readLS = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) || d; } catch (e) { return d; } };
+const writeLS = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} };
+let conv = readLS('freyaConv', {}), turnQ = readLS('freyaTurnQ', []), contInfo = null, wokeBy = false;
+let himBuf = '', herBuf = '', turnN = 0, flushT = null, flushing = false;
+const saveConv = () => writeLS('freyaConv', conv);
+// The floating panel and the main app are separate WebViews sharing this storage: always merge, never overwrite.
+function syncQ() { const seen = new Set(), out = []; for (const t of readLS('freyaTurnQ', []).concat(turnQ)) if (!seen.has(t.cid)) { seen.add(t.cid); out.push(t); } turnQ = out; return turnQ; }
+addEventListener('storage', e => { if (e.key === 'freyaConv' && !active) conv = readLS('freyaConv', conv); });
+function pushTurn(role, text) {
+  text = String(text || '').replace(/\s+/g, ' ').trim(); if (!text || !conv.sid) return;
+  syncQ();
+  turnQ.push({ sid: conv.sid, mode, cid: conv.sid + '.' + Date.now().toString(36) + '.' + (++turnN), role, text: text.slice(0, 4000), at: new Date().toISOString() });
+  if (turnQ.length > 400) turnQ = turnQ.slice(-400);
+  conv.at = Date.now(); saveConv(); writeLS('freyaTurnQ', turnQ);
+  clearTimeout(flushT); flushT = setTimeout(() => flushTurns(), 1200);
+}
+const flushHim = () => { if (himBuf.trim()) pushTurn('user', himBuf); himBuf = ''; };
+const flushHer = () => { if (herBuf.trim()) pushTurn('freya', herBuf); herBuf = ''; };
+const sendMem = (body, keepalive) => fetch('/api/memory', { method: 'POST', keepalive: !!keepalive, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+async function flushTurns(extra, keepalive) {
+  if (flushing) { if (extra) setTimeout(() => flushTurns(extra, keepalive), 800); return; }
+  flushing = true;
+  try {
+    syncQ();
+    while (turnQ.length) {
+      const sid = turnQ[0].sid, batch = []; let size = 0;
+      for (const t of turnQ) { if (t.sid !== sid) continue; size += t.text.length + 120; if (batch.length && (batch.length >= 40 || size > 40000)) break; batch.push(t); }
+      const r = await sendMem({ action: 'turns', session: sid, mode: batch[0].mode, turns: batch.map(({ cid, role, text, at }) => ({ cid, role, text, at })), camera: !!(window.freyaEyes && freyaEyes.on()) }, keepalive);
+      if (!r.ok) break;
+      const done = new Set(batch.map(t => t.cid)); syncQ(); turnQ = turnQ.filter(t => !done.has(t.cid)); writeLS('freyaTurnQ', turnQ);
+    }
+    if (extra && extra.session) await sendMem({ action: 'turns', turns: [], ...extra }, keepalive);
+  } catch (e) {} finally { flushing = false; }
+}
+function endConv(reason, keepalive) {
+  flushHim(); flushHer();
+  if (!conv.sid) return;
+  conv.ended = reason; conv.at = Date.now(); saveConv();
+  flushTurns({ session: conv.sid, ended: reason }, keepalive);
+}
+addEventListener('online', () => flushTurns());
+const MINI = document.body.classList.contains('mini') || new URLSearchParams(location.search).has('mini');
+addEventListener('pagehide', () => { if (active) endConv(MINI ? 'panel' : 'killed', true); else if (turnQ.length) flushTurns(null, true); });
+if (turnQ.length) setTimeout(() => flushTurns(), 3000);
 
 // ---------- audio ----------
 const WORKLET = `class P extends AudioWorkletProcessor{constructor(){super();this.b=new Int16Array(1600);this.i=0}
@@ -131,6 +192,8 @@ function here() {
 async function handleTool(f) {
   const a = f.args || {};
   try {
+    if (f.name === 'recall_conversations') { const r = await post('/api/memory', { action: 'recall', query: a.query || '', days: a.days }); return r.ok ? JSON.stringify(r).slice(0, 8000) : 'memory search unavailable right now'; }
+    if (f.name === 'save_to_section') { return window.freyaEyes ? await freyaEyes.saveToSection(a.section, a.note) : 'not available'; }
     if (f.name === 'section_insights') { const r = await getJ('/api/state?sec=insights&section=' + encodeURIComponent(a.section || '')); return JSON.stringify(r).slice(0, 6000); }
     if (f.name === 'save_memory') { const r = await post('/api/memory', { category: a.category, content: a.content }); if (r.ok) toast('Noted: ' + a.content); return r.ok ? 'saved' : 'not saved'; }
     if (f.name === 'save_answer') { const r = await post('/api/onboarding', { action: 'answer', topic: a.topic, question: a.question, answer: a.answer }); if (r.ok) toast('Noted · ' + (a.topic || 'answer')); return r.ok ? 'saved' : 'not saved'; }
@@ -222,15 +285,16 @@ function alarmTool(name, a) {
 }
 let turnDone = false;
 function checkFinish() {
-  if (pendingStop && turnDone && !sources.size) { const m = pendingStop; pendingStop = null; setTimeout(() => stop(m), 400); return; }
-  if (finishing && turnDone && !sources.size) { const plan = finishing; finishing = null; forceOnboarding = false; setTimeout(() => { stop('Your plan is ready.'); showWrap(plan); }, 600); }
+  if (pendingStop && turnDone && !sources.size) { const m = pendingStop; pendingStop = null; setTimeout(() => stop(m, 'stopped'), 400); return; }
+  if (finishing && turnDone && !sources.size) { const plan = finishing; finishing = null; forceOnboarding = false; setTimeout(() => { stop('Your plan is ready.', 'stopped'); showWrap(plan); }, 600); }
 }
 
 // ---------- session ----------
 async function connect(isReconnect) {
   let q = forceOnboarding ? '?mode=onboarding' : (briefPending && !isReconnect ? '?mode=brief' : (debriefPending && !isReconnect ? '?mode=debrief&event=' + encodeURIComponent(debriefPending) : ''));
-  const resuming = !!(isReconnect && resumeHandle);
+  const resuming = !!resumeHandle;
   if (resuming) q += (q ? '&' : '?') + 'resume=' + encodeURIComponent(resumeHandle);
+  else if (contInfo) q += (q ? '&' : '?') + 'cont=' + encodeURIComponent(contInfo.why) + '&ago=' + contInfo.ago;
   const r = await fetch('/api/token' + q, { method: 'POST', cache: 'no-store' });
   if (r.status === 401) { showLock(); throw new Error('Locked. Unlock with your fingerprint first.'); }
   const j = await r.json().catch(() => ({}));
@@ -246,13 +310,14 @@ async function connect(isReconnect) {
     sock.onclose = e => { clearTimeout(to); reject(new Error(e.reason ? 'Disconnected: ' + e.reason : "Couldn't connect. Tap to try again.")); };
     sock.onmessage = async ev => {
       const m = JSON.parse(typeof ev.data === 'string' ? ev.data : await ev.data.text());
+      if (m.sessionResumptionUpdate && m.sessionResumptionUpdate.resumable !== false && m.sessionResumptionUpdate.newHandle) { resumeHandle = m.sessionResumptionUpdate.newHandle; conv.handle = resumeHandle; conv.at = Date.now(); saveConv(); }
       if (m.setupComplete) { clearTimeout(to); const old = ws; ws = sock; try { old && old !== sock && old.close(1000); } catch (e) {} resolve(); }
     };
   });
   const sock = ws;
   sock.onmessage = async ev => {
     const m = JSON.parse(typeof ev.data === 'string' ? ev.data : await ev.data.text());
-    if (m.sessionResumptionUpdate && m.sessionResumptionUpdate.resumable !== false && m.sessionResumptionUpdate.newHandle) resumeHandle = m.sessionResumptionUpdate.newHandle;
+    if (m.sessionResumptionUpdate && m.sessionResumptionUpdate.resumable !== false && m.sessionResumptionUpdate.newHandle) { resumeHandle = m.sessionResumptionUpdate.newHandle; conv.handle = resumeHandle; conv.at = Date.now(); saveConv(); }
     if (m.toolCall) {
       setBusy(true);
       const calls = m.toolCall.functionCalls || [];
@@ -261,19 +326,24 @@ async function connect(isReconnect) {
     }
     const sc = m.serverContent;
     if (sc) {
-      if (sc.interrupted) { stopPlayback(); newHerTurn = true; }
+      if (sc.interrupted) { stopPlayback(); newHerTurn = true; flushHer(); }
       if (sc.inputTranscription && sc.inputTranscription.text) {
-        caption(himEl, sc.inputTranscription.text, !newHimTurn, 7000); newHimTurn = false; newHerTurn = true;
+        caption(himEl, sc.inputTranscription.text, !newHimTurn, 7000); newHimTurn = false; newHerTurn = true; himBuf += sc.inputTranscription.text;
         if (!sources.size) setBusy(true);
       }
-      if (sc.outputTranscription && sc.outputTranscription.text) { caption(herEl, sc.outputTranscription.text, !newHerTurn, 9000); newHerTurn = false; newHimTurn = true; }
+      if (sc.outputTranscription && sc.outputTranscription.text) { if (newHerTurn) flushHim(); caption(herEl, sc.outputTranscription.text, !newHerTurn, 9000); newHerTurn = false; newHimTurn = true; herBuf += sc.outputTranscription.text; }
       for (const p of (sc.modelTurn && sc.modelTurn.parts) || []) if (p.inlineData && p.inlineData.data) { turnDone = false; playPcm(p.inlineData.data); }
-      if (sc.turnComplete) { turnDone = true; newHerTurn = true; setBusy(false); checkFinish(); }
+      if (sc.turnComplete) { turnDone = true; newHerTurn = true; setBusy(false); flushHim(); flushHer(); checkFinish(); }
     }
     if (m.goAway && active) refresh();
   };
   sock.onclose = e => { if (active && ws === sock) refresh(e); };
-  if (isReconnect) {
+  // Different surface/storage (e.g. PWA vs app): adopt the server's latest thread if it's recent.
+  if (!isReconnect && j.last && j.last.sid && conv.fresh && Date.now() - Date.parse(j.last.at) < 30 * 60e3 && j.last.sid !== conv.sid) { conv.sid = j.last.sid; conv.fresh = false; saveConv(); }
+  if (!isReconnect && contInfo && mode !== 'onboarding') {
+    const c = contInfo; contInfo = null;
+    if (c.ago <= 20 && !c.quiet) { sock.send(JSON.stringify({ realtimeInput: { text: '(Cue, not his words: the conversation was cut off ' + c.ago + ' minute(s) ago because ' + c.label + ', and he is back. If you were mid-thought or mid-advice, pick it up in one short natural line, e.g. "As I was saying about…", then carry on or wait for him. Otherwise just wait.)' } })); setBusy(true); }
+  } else if (isReconnect) {
     // Reconnects are silent: the conversation resumes (same history) and she waits for him. No cue, no greeting, no replay.
   } else if (mode === 'onboarding') {
     sock.send(JSON.stringify({ realtimeInput: { text: '(Cue: Eesah just tapped the orb to start his onboarding. Begin now.)' } }));
@@ -288,11 +358,11 @@ async function connect(isReconnect) {
     const t = nudgePending; nudgePending = '';
     sock.send(JSON.stringify({ realtimeInput: { text: '(Cue: spoken nudge from his phone, not his words: "' + t.replace(/["()]/g, '') + '". Say it to him now in one short, warm, light line in your own words, no lecture, then stop and wait. If he says not now or that it is work, accept it in a few words.)' } })); setBusy(true);
   }
-  retries = 0;
+  retries = 0; contInfo = null;
 }
 async function refresh(e) {
   if (!active || connecting) return;
-  if (retries++ >= 3) return stop('Connection dropped' + (e && e.reason ? ': ' + e.reason : '') + '. Tap to reconnect.');
+  if (retries++ >= 3) return stop('Connection dropped' + (e && e.reason ? ': ' + e.reason : '') + ". I'll pick up where we left off.", 'dropped');
   connecting = true; setStatus('Reconnecting…'); setBusy(true);
   try { await connect(true); connecting = false; setStatus('Listening…'); setBusy(false); }
   catch (err) { connecting = false; stop(err.message); }
@@ -326,8 +396,19 @@ async function start() {
         if (ws && ws.readyState === 1) ws.send(JSON.stringify({ realtimeInput: { audio: { data: b64FromBuf(data), mimeType: 'audio/pcm;rate=16000' } } }));
       };
     }
-    active = true; turnDone = false; finishing = null; resumeHandle = null;
-    await connect(false);
+    active = true; turnDone = false; finishing = null; himBuf = ''; herBuf = '';
+    // Same conversation if he's back within 30 minutes (resume handle if still valid, else rebuilt from saved turns).
+    conv = readLS('freyaConv', conv); // the floating panel may have just been talking (shared thread)
+    const gap = Date.now() - (conv.at || 0), special = forceOnboarding || briefPending || debriefPending || nudgePending;
+    if (!conv.sid || gap > 30 * 60e3 || special) { conv = { sid: newSid(), at: Date.now() }; resumeHandle = null; contInfo = null; }
+    else {
+      resumeHandle = gap < 110 * 60e3 && conv.handle ? conv.handle : null;
+      const why = conv.ended && !['stopped', 'picking'].includes(conv.ended) ? conv.ended : null;
+      contInfo = why ? { why, ago: Math.round(gap / 60e3), quiet: wokeBy || why === 'panel', label: { dropped: 'the connection dropped', background: 'he left the app for a moment', killed: 'the app was closed', timeout: 'the session timed out' }[why] || 'of a glitch' } : null;
+    }
+    conv.fresh = gap > 30 * 60e3 || !conv.handle && !conv.ended; conv.ended = null; conv.at = Date.now(); saveConv(); flushTurns(); wokeBy = false;
+    try { await connect(false); }
+    catch (err) { if (!resumeHandle) throw err; resumeHandle = null; conv.handle = null; await connect(false); } // stale handle: fresh session, same memory
     connecting = false;
     $('textbar').hidden = false; $('redo').hidden = true;
     if (APP) try { FreyaAndroid.sessionActive(true); } catch (e) {}
@@ -338,7 +419,9 @@ async function start() {
   }
 }
 
-function stop(msg) {
+function stop(msg, reason) {
+  if (window.freyaEyes) freyaEyes.close('session');
+  if (active) endConv(reason || 'dropped', document.hidden); // keepalive: the page may be going away
   active = false; setBusy(false);
   if (APP) try { FreyaAndroid.sessionActive(false); } catch (e) {}
   const s = ws; ws = null; try { s && s.close(1000); } catch (e) {}
@@ -353,7 +436,7 @@ function stop(msg) {
 
 orb.addEventListener('click', () => {
   if (!authed) return showLock();
-  if (active) return stop();
+  if (active) return stop(undefined, 'stopped');
   if (life && life.private && life.private.manualUntil) { post('/api/state', { action: 'private', on: false }).then(loadLife); }
   start();
 });
@@ -380,9 +463,16 @@ orb.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') {
 })();
 $('textbar').addEventListener('submit', e => {
   e.preventDefault(); const t = $('textin').value.trim(); if (!t || !ws || ws.readyState !== 1) return;
-  ws.send(JSON.stringify({ realtimeInput: { text: t } })); caption(himEl, t, false, 7000); newHimTurn = true; $('textin').value = ''; setBusy(true);
+  ws.send(JSON.stringify({ realtimeInput: { text: t } })); flushHim(); pushTurn('user', t); caption(himEl, t, false, 7000); newHimTurn = true; $('textin').value = ''; setBusy(true);
 });
-document.addEventListener('visibilitychange', () => { if (document.hidden && active) stop('Paused while FREYA was in the background. Tap to talk.'); });
+// Leaving the app pauses her (camera first, instantly). Coming back picks the same conversation up where it was.
+let pausedAt = 0, pickingAt = 0; // pickingAt: he's choosing a photo/video for her (the picker covers the app)
+document.addEventListener('visibilitychange', () => {
+  const picking = Date.now() - pickingAt < 120000;
+  if (document.hidden) { if (window.freyaEyes) freyaEyes.close('background'); if (active) { pausedAt = picking ? 0 : Date.now(); stop(picking || MINI ? idleMsg : "Paused while you were away. I'll pick up where we left off.", MINI ? 'panel' : picking ? 'picking' : 'background'); } return; }
+  if (pausedAt && Date.now() - pausedAt < 10 * 60e3 && APP && authed && !active && !connecting) { pausedAt = 0; setTimeout(() => { if (!document.hidden && !active) start(); }, 400); }
+  else pausedAt = 0;
+});
 
 // ---------- onboarding status ----------
 async function loadOnboarding() {
@@ -391,17 +481,17 @@ async function loadOnboarding() {
   if (!onboardingState.configured) return;
   const st = onboardingState.status;
   if (st === 'awaiting_pledge' && onboardingState.plan) { idleMsg = 'Your plan is waiting for your signature.'; showWrap(onboardingState.plan); }
-  else if (st !== 'complete' || forceOnboarding) idleMsg = greeting + " Before anything else, let's set you up properly. Tap the orb to begin.";
+  else if (st !== 'complete' || forceOnboarding) idleMsg = greeting + " Before anything else, let's set you up properly. I'm ready when you are.";
   else { $('redo').hidden = false; showNotifyChip(false); }
-  if (briefPending && st === 'complete') idleMsg = 'Your morning brief is ready. Tap the orb.';
-  if (debriefPending && st === 'complete') idleMsg = 'Debrief ready. Tap the orb and tell me how it went.';
+  if (briefPending && st === 'complete') idleMsg = 'Your morning brief is ready when you are.';
+  if (debriefPending && st === 'complete') idleMsg = 'Debrief ready. Tell me how it went.';
   if (!active) setStatus(idleMsg);
   window.dispatchEvent(new Event('freya:ready'));
 }
 $('redo').addEventListener('click', async () => {
   if (!confirm('Redo your setup with Freya? Your memories stay; she will walk you through it again.')) return;
   const r = await post('/api/onboarding', { action: 'reset' });
-  if (r.ok) { onboardingState.status = 'not_started'; $('redo').hidden = true; idleMsg = "Fresh start. Tap the orb and she'll walk you through it."; setStatus(idleMsg); }
+  if (r.ok) { onboardingState.status = 'not_started'; $('redo').hidden = true; idleMsg = "Fresh start. I'll walk you through it whenever you're ready."; setStatus(idleMsg); }
   else toast("Couldn't reset right now.");
 });
 
@@ -466,7 +556,7 @@ $('commit').addEventListener('click', async () => {
   $('commit').disabled = false; $('commit').textContent = 'Sign & commit';
   if (!r.ok) return err.textContent = r.error || "Couldn't save. Check your connection and try again.";
   $('wrap').hidden = true; onboardingState.status = 'complete'; $('redo').hidden = false;
-  idleMsg = "Signed and sealed, Eesah. I've got your back. Tap the orb to talk."; setStatus(idleMsg); toast('Pledge saved'); window.dispatchEvent(new Event('freya:ready'));
+  idleMsg = "Signed and sealed, Eesah. I've got your back."; setStatus(idleMsg); toast('Pledge saved'); window.dispatchEvent(new Event('freya:ready'));
   if (forceOnboarding) { forceOnboarding = false; history.replaceState(null, '', '/'); }
 });
 
@@ -523,7 +613,7 @@ function wakeGo() {
   if (!wakePending || !authed) return;
   wakePending = false;
   if (location.search) history.replaceState(null, '', '/');
-  if (!active && !connecting) start();
+  if (!active && !connecting) { wokeBy = true; start(); }
 }
 window.freyaWake = () => { wakePending = true; if (authed) wakeGo(); else { showLock('unlock'); unlock(); } };
 $('btn-enrol').addEventListener('click', () => enrol());

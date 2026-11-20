@@ -28,7 +28,15 @@
     if (want && list.some(s => s.key === want) && !cur) { history.replaceState(null, '', '/'); open(want); }
   }
   tiles.addEventListener('click', e => { const b = e.target.closest('.tile'); if (b) open(b.dataset.k); });
-  window.freyaSections = { refresh: loadTiles, open };
+  // Used by the camera button: save what he showed Freya into a section via the same pipeline (24h raw delete, insights kept).
+  const status = k => (list.find(s => s.key === k) || {}).status;
+  async function saveFile(k, file, note) {
+    if (!list.length) await loadTiles();
+    if (status(k) !== 'ready') return { ok: false, error: 'not_ready' };
+    if (!file) return sendText(note || '', 'text', (note || 'Note').slice(0, 60), () => {}, k);
+    return queue(file, k, () => {});
+  }
+  window.freyaSections = { refresh: loadTiles, open, saveFile, status, toJpeg: (...a) => toJpeg(...a), keyframes: f => keyframes(f) };
 
   // ---------------- section shell ----------------
   function ring(cls = '') {
@@ -292,18 +300,19 @@
       $('card-body').querySelectorAll('[data-me]').forEach(b => b.onclick = () => { hideCard(); res(people[+b.dataset.me]); });
     });
   }
-  async function sendText(text, kind, label, set) {
+  async function sendText(text, kind, label, set, k = cur) {
     set = set || row(label); set('Freya is reading…');
-    const r = await post('/api/state', { action: 'sec_text', section: cur, kind, text, name: label }).catch(() => ({}));
-    set(r.ok ? 'Done · insight ready' : (r.error || 'Saved. I’ll finish it in the background.')); refresh();
+    const r = await post('/api/state', { action: 'sec_text', section: k, kind, text, name: label }).catch(() => ({}));
+    set(r.ok ? 'Done · insight ready' : (r.error || 'Saved. I’ll finish it in the background.')); if (cur && cur === k) refresh();
+    return r;
   }
   async function putFile(url, blob, type) { const r = await fetch(url, { method: 'PUT', headers: { 'content-type': type, 'x-upsert': 'true' }, body: blob }); if (!r.ok) throw new Error('upload ' + r.status); }
-  async function queue(file) {
-    const k = cur, set = row(file.name || 'file');
+  async function queue(file, k = cur, set) {
+    set = set || row(file.name || 'file');
     try {
       const t = file.type || '', name = file.name || 'file';
-      if (/\.zip$/i.test(name) || t === 'application/zip' || t === 'application/x-zip-compressed') { set('Opening the export…'); const txt = await unzipTxt(file); return sendText(k === 'connections' ? await prepChat(txt) : txt.slice(-100000), k === 'connections' ? 'chat' : 'text', name.replace(/\.zip$/i, ''), set); }
-      if (/^text\//.test(t) || /\.txt$/i.test(name)) { const txt = await file.text(); return sendText(k === 'connections' && looksChat(txt) ? await prepChat(txt) : txt.slice(-100000), k === 'connections' ? 'chat' : 'text', name, set); }
+      if (/\.zip$/i.test(name) || t === 'application/zip' || t === 'application/x-zip-compressed') { set('Opening the export…'); const txt = await unzipTxt(file); return sendText(k === 'connections' ? await prepChat(txt) : txt.slice(-100000), k === 'connections' ? 'chat' : 'text', name.replace(/\.zip$/i, ''), set, k); }
+      if (/^text\//.test(t) || /\.txt$/i.test(name)) { const txt = await file.text(); return sendText(k === 'connections' && looksChat(txt) ? await prepChat(txt) : txt.slice(-100000), k === 'connections' ? 'chat' : 'text', name, set, k); }
       let blob, mime, kind, thumb = null;
       if (/^image\//.test(t)) { set('Compressing…'); blob = await toJpeg(file, 1600, 0.82); mime = 'image/jpeg'; kind = 'photo'; if (k === 'body') thumb = await toJpeg(file, 320, 0.72); }
       else if (/^video\//.test(t)) { set('Pulling keyframes…'); const kf = await keyframes(file); blob = kf.sheet; mime = 'image/jpeg'; kind = 'video'; thumb = k === 'body' ? kf.thumb : null; }
@@ -319,6 +328,7 @@
       const r = await post('/api/state', { action: 'sec_uploaded', section: k, id: u.id }).catch(() => ({}));
       set(r.ok ? 'Done · insight ready' : (r.error || 'Saved. I’ll finish it in the background.'));
       if (cur === k) refresh();
+      return r.ok ? { ok: true, insight: r.insight || (r.analysis && r.analysis.summary) || null } : { ok: !!u.id, pending: true, error: r.error };
     } catch (e) { set(/too long/.test(e.message) ? 'Video too long (max 10 min)' : 'Couldn’t read that file'); }
   }
 
