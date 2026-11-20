@@ -13,6 +13,9 @@ import android.net.Uri
 import android.os.Bundle
 import android.view.WindowManager
 import android.webkit.CookieManager
+import android.webkit.ValueCallback
+import android.provider.MediaStore
+import androidx.core.content.FileProvider
 import android.webkit.GeolocationPermissions
 import android.webkit.JavascriptInterface
 import android.webkit.PermissionRequest
@@ -29,13 +32,16 @@ class MainActivity : Activity() {
     companion object {
         const val EXTRA_WAKE = "wake"
         const val ACTION_TALK = "app.freya.android.TALK"
-        private const val RC_MIC = 1; private const val RC_GEO = 2; private const val RC_FIRST = 3
+        private const val RC_MIC = 1; private const val RC_GEO = 2; private const val RC_FIRST = 3; private const val RC_FILE = 4
+        const val EXTRA_PATH = "path"
     }
 
     private lateinit var web: WebView
     private var pendingMic: PermissionRequest? = null
     private var geoCb: GeolocationPermissions.Callback? = null
     private var geoOrigin: String? = null
+    private var fileCb: ValueCallback<Array<Uri>>? = null
+    private var camFile: java.io.File? = null
     @Volatile private var onOurSite = true
     @Volatile private var inSession = false
     // Wake-word sessions only start once FREYA is actually on screen (never talk invisibly).
@@ -156,6 +162,12 @@ class MainActivity : Activity() {
                     else { pendingMic = req; requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), RC_MIC) }
                 }
             }
+            // <input type=file> for growth sections: files, gallery, and the camera (photo or short clip).
+            override fun onShowFileChooser(v: WebView, cb: ValueCallback<Array<Uri>>, params: FileChooserParams): Boolean {
+                if (!onOurSite) return false
+                fileCb?.onReceiveValue(null); fileCb = cb
+                return try { startActivityForResult(chooser(params), RC_FILE); true } catch (e: Exception) { fileCb = null; false }
+            }
             override fun onGeolocationPermissionsShowPrompt(origin: String, cb: GeolocationPermissions.Callback) {
                 if (Uri.parse(origin).host != HOST) { cb.invoke(origin, false, false); return }
                 if (checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED) cb.invoke(origin, true, false)
@@ -163,7 +175,7 @@ class MainActivity : Activity() {
             }
         }
 
-        if (b == null) web.loadUrl("$BASE_URL/") else web.restoreState(b)
+        if (b == null) web.loadUrl("$BASE_URL" + (pathOf(intent) ?: "/")) else web.restoreState(b)
         if (wake) requestWake()
 
         val p = Prefs.app(this)
@@ -172,6 +184,57 @@ class MainActivity : Activity() {
             requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.POST_NOTIFICATIONS), RC_FIRST)
         }
     }
+
+    private fun mimesFor(accept: Array<String>): Array<String> = accept.flatMap { it.split(',') }.map { it.trim().lowercase() }.filter { it.isNotEmpty() }.map {
+        when (it) { ".txt" -> "text/plain"; ".zip" -> "application/zip"; ".pdf" -> "application/pdf"; else -> it }
+    }.distinct().toTypedArray()
+
+    private fun camIntent(video: Boolean): Intent {
+        val dir = java.io.File(cacheDir, "cam").apply { mkdirs(); listFiles()?.forEach { f -> if (System.currentTimeMillis() - f.lastModified() > 864e5) f.delete() } }
+        val f = java.io.File(dir, "cap-" + System.currentTimeMillis() + if (video) ".mp4" else ".jpg"); camFile = f
+        val uri = FileProvider.getUriForFile(this, "$packageName.files", f)
+        return Intent(if (video) MediaStore.ACTION_VIDEO_CAPTURE else MediaStore.ACTION_IMAGE_CAPTURE).apply {
+            putExtra(MediaStore.EXTRA_OUTPUT, uri)
+            if (video) { putExtra(MediaStore.EXTRA_DURATION_LIMIT, 60); putExtra(MediaStore.EXTRA_VIDEO_QUALITY, 1) }
+            clipData = android.content.ClipData.newRawUri("", uri)
+            addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+    }
+
+    private fun chooser(p: WebChromeClient.FileChooserParams): Intent {
+        camFile = null
+        val mimes = mimesFor(p.acceptTypes)
+        val img = mimes.isEmpty() || mimes.any { it.startsWith("image") }
+        val vid = mimes.any { it.startsWith("video") }
+        if (p.isCaptureEnabled && (img || vid)) return camIntent(video = vid && !img)
+        val pick = Intent(Intent.ACTION_GET_CONTENT).addCategory(Intent.CATEGORY_OPENABLE).setType(if (mimes.size == 1) mimes[0] else "*/*")
+        if (mimes.size > 1) pick.putExtra(Intent.EXTRA_MIME_TYPES, mimes)
+        if (p.mode == WebChromeClient.FileChooserParams.MODE_OPEN_MULTIPLE) pick.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+        val extra = mutableListOf<Intent>()
+        if (img) extra.add(camIntent(false))
+        return Intent.createChooser(pick, "Add to FREYA").apply { if (extra.isNotEmpty()) putExtra(Intent.EXTRA_INITIAL_INTENTS, extra.toTypedArray()) }
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(rc: Int, result: Int, data: Intent?) {
+        super.onActivityResult(rc, result, data)
+        if (rc != RC_FILE) return
+        val cb = fileCb; fileCb = null
+        var out: Array<Uri>? = null
+        if (result == RESULT_OK) {
+            val clip = data?.clipData
+            out = when {
+                clip != null && clip.itemCount > 0 && clip.getItemAt(0).uri?.authority != "$packageName.files" -> Array(clip.itemCount) { clip.getItemAt(it).uri }
+                data?.data != null -> arrayOf(data.data!!)
+                camFile?.let { it.exists() && it.length() > 0 } == true -> arrayOf(FileProvider.getUriForFile(this, "$packageName.files", camFile!!))
+                else -> null
+            }
+        }
+        cb?.onReceiveValue(out)
+    }
+
+    // Notification taps can deep-link into a section (only our own "/?section=..." paths).
+    private fun pathOf(i: Intent?): String? = i?.getStringExtra(EXTRA_PATH)?.takeIf { Regex("^/\\?section=[a-z]{3,12}$").matches(it) }
 
     private fun isWake(i: Intent?) = i != null && (i.getBooleanExtra(EXTRA_WAKE, false) || i.action == ACTION_TALK)
 
@@ -182,6 +245,7 @@ class MainActivity : Activity() {
     override fun onNewIntent(i: Intent) {
         super.onNewIntent(i); setIntent(i)
         if (isWake(i)) requestWake()
+        pathOf(i)?.let { if (!inSession) web.loadUrl("$BASE_URL" + it) }
     }
 
     override fun onResume() {

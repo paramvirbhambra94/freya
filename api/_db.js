@@ -15,6 +15,19 @@ async function db(path, { method = 'GET', body, prefer } = {}) {
   return t ? JSON.parse(t) : null;
 }
 
+// Supabase Storage (private buckets) with the same server-only key.
+async function storage(path, { method = 'GET', body, json = true, headers: extra = {} } = {}) {
+  if (!KEY) throw new Error('memory_not_configured');
+  const headers = { apikey: KEY, ...extra };
+  if (KEY.startsWith('eyJ')) headers.authorization = 'Bearer ' + KEY;
+  let payload = body;
+  if (body && json && !(body instanceof Uint8Array)) { headers['content-type'] = 'application/json'; payload = JSON.stringify(body); }
+  const r = await fetch(`${URL_}/storage/v1/${path}`, { method, headers, body: payload });
+  if (!r.ok) throw new Error('storage_error_' + r.status + ': ' + (await r.text()).slice(0, 200));
+  return r;
+}
+const SUPABASE_URL = URL_;
+
 async function getProfile() {
   const rows = await db('profile?select=key,value');
   return Object.fromEntries(rows.map(r => [r.key, r.value]));
@@ -49,4 +62,4 @@ function london(d = new Date()) {
   return { date: `${p.year}-${p.month}-${p.day}`, y: +p.year, m: +p.month, d: +p.day, hm: `${p.hour}:${p.minute}`, min: (+p.hour) * 60 + (+p.minute), weekday: p.weekday };
 }
 
-module.exports = { db, configured, getProfile, setProfile, readBody, clip, getSecret, setSecret, london };
+module.exports = { db, storage, SUPABASE_URL, configured, getProfile, setProfile, readBody, clip, getSecret, setSecret, london };

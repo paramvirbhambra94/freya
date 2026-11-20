@@ -59,6 +59,15 @@ class FreyaBridge(private val c: Context, private val ourSite: () -> Boolean, pr
         if (!ok()) return err("not allowed")
         return try { Aware.liveToday(c).toString() } catch (e: Exception) { err("unavailable") }
     }
+    // Local "your section is ready" notification (scheduled when a section build starts).
+    @JavascriptInterface fun notifyAt(at: Double, title: String?, body: String?, path: String?): String {
+        if (!ok()) return err("not allowed")
+        return try { ReadyReceiver.schedule(c, at.toLong(), title ?: "FREYA", body ?: "", path ?: "/"); JSONObject().put("ok", true).toString() } catch (e: Exception) { err("could not schedule") }
+    }
+    @JavascriptInterface fun cancelNotify(path: String?): String {
+        if (!ok()) return err("not allowed")
+        ReadyReceiver.cancel(c, path ?: "/"); return JSONObject().put("ok", true).toString()
+    }
     @JavascriptInterface fun openSettings() {
         h.post { c.startActivity(Intent(c, SettingsActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
     }

@@ -131,6 +131,7 @@ function here() {
 async function handleTool(f) {
   const a = f.args || {};
   try {
+    if (f.name === 'section_insights') { const r = await getJ('/api/state?sec=insights&section=' + encodeURIComponent(a.section || '')); return JSON.stringify(r).slice(0, 6000); }
     if (f.name === 'save_memory') { const r = await post('/api/memory', { category: a.category, content: a.content }); if (r.ok) toast('Noted: ' + a.content); return r.ok ? 'saved' : 'not saved'; }
     if (f.name === 'save_answer') { const r = await post('/api/onboarding', { action: 'answer', topic: a.topic, question: a.question, answer: a.answer }); if (r.ok) toast('Noted · ' + (a.topic || 'answer')); return r.ok ? 'saved' : 'not saved'; }
     if (f.name === 'get_prayer_times') { const r = await getJ('/api/prayers'); return r.ok ? JSON.stringify({ today: r.today, tomorrow: r.tomorrow, next: r.next, mosque: r.mosque, travelling: r.travelling }) : 'unavailable'; }
@@ -395,6 +396,7 @@ async function loadOnboarding() {
   if (briefPending && st === 'complete') idleMsg = 'Your morning brief is ready. Tap the orb.';
   if (debriefPending && st === 'complete') idleMsg = 'Debrief ready. Tap the orb and tell me how it went.';
   if (!active) setStatus(idleMsg);
+  window.dispatchEvent(new Event('freya:ready'));
 }
 $('redo').addEventListener('click', async () => {
   if (!confirm('Redo your setup with Freya? Your memories stay; she will walk you through it again.')) return;
@@ -464,7 +466,7 @@ $('commit').addEventListener('click', async () => {
   $('commit').disabled = false; $('commit').textContent = 'Sign & commit';
   if (!r.ok) return err.textContent = r.error || "Couldn't save. Check your connection and try again.";
   $('wrap').hidden = true; onboardingState.status = 'complete'; $('redo').hidden = false;
-  idleMsg = "Signed and sealed, Eesah. I've got your back. Tap the orb to talk."; setStatus(idleMsg); toast('Pledge saved');
+  idleMsg = "Signed and sealed, Eesah. I've got your back. Tap the orb to talk."; setStatus(idleMsg); toast('Pledge saved'); window.dispatchEvent(new Event('freya:ready'));
   if (forceOnboarding) { forceOnboarding = false; history.replaceState(null, '', '/'); }
 });
 

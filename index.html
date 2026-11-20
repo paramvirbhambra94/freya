@@ -38,6 +38,7 @@
     <p id="status" aria-live="polite">Standing by.</p>
     <div id="captions" aria-live="polite"><div class="her"></div><div class="him"></div></div>
   </div>
+  <nav id="tiles" hidden aria-label="Your spaces"></nav>
 </main>
 <form id="textbar" hidden autocomplete="off"><input id="textin" placeholder="Type to Freya…" enterkeyhint="send"><button>Send</button></form>
 <div id="toast" aria-live="polite"></div>
@@ -49,6 +50,7 @@
 <div id="vol"><button id="volbtn" aria-label="Her volume">🔉</button><input id="volr" type="range" min="0" max="100" step="5" hidden aria-label="Her volume"></div>
 <button id="appbtn" hidden aria-label="App settings">⚙</button>
 <section id="money" hidden><div class="money-inner"><div class="mhead"><p class="kicker">Money · read-only</p><button id="mclose" class="link" aria-label="Close">Close</button></div><div id="mbody"><p class="hint">Loading…</p></div></div></section>
+<section id="sect" hidden aria-label="Section"><div class="sect-inner"><div class="shead"><button id="sect-back" class="link" aria-label="Back">‹ Back</button><p id="sect-title" class="kicker"></p><span></span></div><div id="sect-body"></div></div></section>
 <section id="card" hidden><div class="sheet" id="card-body"></div></section>
 
 <section id="logq" hidden><div class="sheet"><p id="logq-title"></p><div class="row"><button data-s="jamaah">In jama'ah</button><button data-s="prayed">Prayed</button><button data-s="missed" class="ghost">Missed</button><button data-s="later" class="link">Later</button></div></div></section>
@@ -100,5 +102,6 @@
   </div>
 </section>
 <script src="/app.js"></script>
+<script src="/sections.js"></script>
 </body>
 </html>

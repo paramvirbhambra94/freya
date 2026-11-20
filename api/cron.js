@@ -6,6 +6,7 @@ const { toMin, NAMES } = require('./_prayer');
 const G = require('./_google');
 const M = require('./_money');
 const PL = require('./_patterns');
+const SEC = require('./_sections');
 const label = n => n[0].toUpperCase() + n.slice(1);
 
 async function claim(key) {
@@ -51,6 +52,11 @@ module.exports = async (req, res) => {
   const want = await getSecret('cron_secret');
   if (given.length !== want.length || !crypto.timingSafeEqual(Buffer.from(given), Buffer.from(want))) return res.status(401).json({ error: 'locked' });
   const out = [];
+  // Every-minute poke while a growth section is building (pg_cron job freya-sections-build): sections only.
+  if (req.query && req.query.only === 'sections') { try { return res.status(200).json({ ok: true, sections: await SEC.tick(claim) }); } catch (e) { return res.status(500).json({ error: 'sections failed' }); } }
+  let sections = null;
+  try { const t = new Date(); const lw = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', weekday: 'short', hour: '2-digit', hourCycle: 'h23' }).formatToParts(t); const wd = lw.find(p => p.type === 'weekday').value, hr = +lw.find(p => p.type === 'hour').value;
+    sections = await SEC.tick(claim, { weeklyNow: wd === 'Mon' && hr >= 4 }); } catch (e) { sections = { error: true }; }
   try {
     const s = await lifeState();
     // Google: refresh calendar cache, then handle finished meetings (Meet notes -> memory, debrief offers)
@@ -120,6 +126,6 @@ module.exports = async (req, res) => {
         }
       } catch (e) { out.push('money_alerts_failed'); }
     }
-    return res.status(200).json({ ok: true, sent: out, google: meet, money, learn: learn && (learn.error || learn.skipped || 'ok') });
+    return res.status(200).json({ ok: true, sent: out, sections, google: meet, money, learn: learn && (learn.error || learn.skipped || 'ok') });
   } catch (e) { return res.status(500).json({ error: 'cron failed' }); }
 };

@@ -49,5 +49,13 @@
       "destination": "https://github.com/paramvirbhambra94/freya/releases/latest/download/freya.apk",
       "permanent": false
     }
-  ]
+  ],
+  "functions": {
+    "api/state.js": {
+      "maxDuration": 60
+    },
+    "api/cron.js": {
+      "maxDuration": 60
+    }
+  }
 }

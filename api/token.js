@@ -5,6 +5,7 @@ const G = require('./_google');
 const M = require('./_money');
 const PL = require('./_patterns');
 const PH = require('./_phone');
+const SEC = require('./_sections');
 // Mints a short-lived, single-use Gemini Live token. The API key never leaves the server.
 const MODEL = 'models/gemini-3.8-live';
 const VOICE = 'Sulafat';
@@ -95,6 +96,11 @@ function lifeBlock(L, ctx) {
     if (ph.candidate) lines.push(`ONE PHONE HABIT YOU MAY GENTLY RAISE (pattern_id ${ph.candidate.id}): ${ph.candidate.say} Only if his day, sleep, energy, prayer or productivity comes up naturally in THIS conversation and he isn't rushed. Ask it as a question, never as judgement; then call note_phone_pattern with his answer. Never raise more than this one.`);
     else lines.push('You are still getting to know his phone habits. Do not volunteer "I noticed" observations about his screen time or activity.');
   }
+  const sx = ctx.mode === 'onboarding' ? null : ctx.sections;
+  if (sx && sx.length) {
+    lines.push('GROWTH SECTIONS (tiles under the orb: Body, Connections, Mind & Deen, Work & Ambition, Vault). Status: ' + sx.map(x => x.status === 'ready' ? `${x.name}: ready — "${x.headline || ''}"; goals: ${(x.goals || []).join('; ')}; latest: ${(x.latest || []).join(' / ')}` : `${x.name}: ${x.status === 'building' ? 'being built right now' : 'questions started'}`).join(' || '));
+    lines.push('Use section insights to answer when he asks or when that area comes up naturally (call section_insights for more). Do NOT recite them or list what you have learned. At most ONE gentle question about a section per conversation, only if relevant, and never during private mode or a meeting.');
+  }
   return `
 
 TODAY'S LIFE ENGINE (live data, UK time):
@@ -144,6 +150,7 @@ const TOOL_FINISH = { name: 'finish_onboarding', description: 'Call once, when o
 
 const BOOL = d => ({ type: 'BOOLEAN', description: d });
 const LIFE_TOOLS = [
+  { name: 'section_insights', description: "His growth sections (body, connections, mind, work, vault): status, goals, coaching plan, recent insights and tracked metrics. Use when he asks about progress in one of those areas, or to coach him with what his uploads showed.", parameters: OBJ({ section: { type: 'STRING', enum: ['body', 'connections', 'mind', 'work', 'vault'] } }, ['section']) },
   { name: 'get_prayer_times', description: "Get today's and tomorrow's prayer and jama'ah times and the next prayer.", parameters: OBJ({ day: { type: 'STRING', enum: ['today', 'tomorrow'] } }, []) },
   { name: 'log_prayer', description: 'Log one of the five daily prayers for today.', parameters: OBJ({ prayer: { type: 'STRING', enum: ['fajr', 'dhuhr', 'asr', 'maghrib', 'isha'] }, status: { type: 'STRING', enum: ['prayed', 'jamaah', 'qada', 'missed', 'clear'] } }, ['prayer', 'status']) },
   { name: 'log_habit', description: 'Log a habit as done (or missed) today.', parameters: OBJ({ name: STR('Exact habit name.'), done: BOOL('true if done, false if missed') }, ['name', 'done']) },
@@ -198,6 +205,7 @@ async function loadContext() {
     try { const md = await M.load(); if (md.accounts.length) { ctx.money = M.analyse(md); delete ctx.money.months; delete ctx.money.recurring;
       ctx.patterns = await PL.view(profile); ctx.patterns.drift = profile.onboarding_status === 'complete' ? await PL.driftCheck(md).catch(() => null) : null; } } catch (e) {}
     ctx.phone = await PH.view(profile).catch(() => null);
+    ctx.sections = await SEC.context().catch(() => null);
     if (life && life.google && life.google.connected) {
       const now = new Date().toISOString();
       const [cal, deb, notes] = await Promise.all([
