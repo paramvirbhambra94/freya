@@ -14,6 +14,7 @@ class BootReceiver : BroadcastReceiver() {
         val unlocked = c.getSystemService(UserManager::class.java).isUserUnlocked
         if (!unlocked || i.action == Intent.ACTION_LOCKED_BOOT_COMPLETED) return
         if (i.action == "android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED") return
+        try { Aware.schedule(c, soon = true) } catch (e: Exception) {}
         if (Prefs.wakeEnabled(c)) {
             // Android 14+ blocks starting a microphone service straight from boot, so we try,
             // and if refused we post a one-tap notification to switch listening back on.

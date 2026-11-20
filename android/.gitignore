@@ -6,3 +6,4 @@ local.properties
 *.keystore
 keystore.properties
 app/src/main/assets/model-en-us/
+.kotlin/

@@ -4,6 +4,7 @@ const { lifeState } = require('./_life');
 const G = require('./_google');
 const M = require('./_money');
 const PL = require('./_patterns');
+const PH = require('./_phone');
 // Mints a short-lived, single-use Gemini Live token. The API key never leaves the server.
 const MODEL = 'models/gemini-3.8-live';
 const VOICE = 'Sulafat';
@@ -28,7 +29,7 @@ HOW YOU HELP: push him to grow. Help him think, decide and act; never do his thi
 
 MEMORY: When you learn something durable about Eesah (a fact, preference, goal, commitment, routine, person in his life, worry), quietly call save_memory with a short, specific note. Never announce that you are saving. Never invent facts about his life; use only what he has told you or what is listed below.
 
-LIMITS FOR NOW: you can see his prayer times, habits and streaks, and you can log prayers, set private mode and his brief time, and send him phone reminders. You can see his bank accounts read-only (balances, spending, bills, simulations); you can never move money or make payments. If he asks for something you can't do yet, say so in one line and offer what you can do. Be respectful of his faith.`;
+LIMITS FOR NOW: you can see his prayer times, habits and streaks, and you can log prayers, set private mode and his brief time, and send him phone reminders. You can see his bank accounts read-only (balances, spending, bills, simulations); you can never move money or make payments. If he has switched on phone awareness, you can see summaries of his phone time, steps and notification counts (never message content). If he asks for something you can't do yet, say so in one line and offer what you can do. Be respectful of his faith.`;
   if (ctx.profile && Object.keys(ctx.profile).length) {
     p += '\n\nWHAT YOU ALREADY KNOW ABOUT EESAH (pre-loaded; treat as true unless he corrects it):\n' +
       Object.entries(ctx.profile).filter(([k]) => !['onboarding_status', 'onboarding_completed_at', 'life_plan', 'companion_days', 'last_companion_day', 'pattern_last_intro', 'private_until'].includes(k) && !/^(money_|google_|mosque_cache)/.test(k)).map(([k, v]) => `- ${k}: ${v}`).join('\n');
@@ -39,7 +40,7 @@ LIMITS FOR NOW: you can see his prayer times, habits and streaks, and you can lo
   if (ctx.life) p += lifeBlock(ctx.life, ctx);
   if (ctx.brief && mode !== 'onboarding') p += `
 
-HE JUST OPENED HIS MORNING BRIEF. Speak first, now. Greet him in one line, then: today's prayers with jama'ah times (lead with the next one), today's calendar (what's fixed, and any clashes with jama'ah times), any important unread email worth his attention (one line each, max three), ONE line on money (balance, anything due or off-pace, or progress to his savings goal; skip numbers he didn't ask for if nothing's notable; only mention a spending pattern if it is in PATTERNS HE ALREADY KNOWS), how his prayers and habits went yesterday and any streaks worth naming, then help him set two or three priorities for today (ask for his top one if you don't know it), and one habit nudge. Under ninety seconds. End with one short question.`;
+HE JUST OPENED HIS MORNING BRIEF. Speak first, now. Greet him in one line, then: today's prayers with jama'ah times (lead with the next one), today's calendar (what's fixed, and any clashes with jama'ah times), any important unread email worth his attention (one line each, max three), ONE line on money (balance, anything due or off-pace, or progress to his savings goal; skip numbers he didn't ask for if nothing's notable; only mention a spending pattern if it is in PATTERNS HE ALREADY KNOWS), how his prayers and habits went yesterday and any streaks worth naming, at most ONE short phone/activity line if PHONE AWARENESS has a yesterday summary (e.g. steps, or late-night use) framed kindly and only if it's notable or already discussed, then help him set two or three priorities for today (ask for his top one if you don't know it), and one habit nudge. Under ninety seconds. End with one short question.`;
   if (ctx.debrief) p += `\n\nHE OPENED A MEETING DEBRIEF for "${ctx.debrief.summary}" (${ctx.debrief.when}). Speak first: one line to open, then a quick debrief, one question at a time: how it went, what was decided, what he owes and by when, anything that worried him. ${ctx.debrief.notes ? 'You already have the meeting notes below; confirm the key points with him rather than asking from scratch. Notes: ' + ctx.debrief.notes : ''} Keep it to about two minutes. When done, call save_debrief with event_id "${ctx.debrief.id}" and a tight summary (decisions, his follow-ups with dates).`;
   if (mode === 'onboarding') {
     p += `
@@ -85,6 +86,15 @@ function lifeBlock(L, ctx) {
     if (pv.candidate) lines.push(`ONE PATTERN YOU MAY GENTLY RAISE (pattern_id ${pv.candidate.id}, ${pv.candidate.confidence} confidence over ${pv.candidate.evidence_days} days): ${pv.candidate.say} Only if money, spending or his week comes up naturally in THIS conversation and he isn't in a rush. Ask first, curious not clinical, e.g. "${pv.candidate.ask}" Then listen. Call note_pattern with status "raised" when you raise it, then "confirmed" or "dismissed" from his answer. Never raise more than this one.`);
     else lines.push('You are still getting to know his spending. Do not volunteer spending patterns, habits or "I noticed" observations about his money yet.');
   }
+  const ph = ctx.mode === 'onboarding' ? null : ctx.phone;
+  if (ph) {
+    const fm = m => m == null ? 'unknown' : m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m}m`;
+    const B = ph.baseline;
+    lines.push(`PHONE AWARENESS (summaries from his phone, uploaded about every 30 min; for answering when he asks, NOT for volunteering): ` + (ph.today ? `today so far ${fm(ph.today.screen_min)} screen time, ${ph.today.unlocks} unlocks, ${ph.today.steps == null ? 'steps unknown' : ph.today.steps + ' steps'}. ` : '') + (ph.yesterday ? `Yesterday ${fm(ph.yesterday.screen_min)} screen, ${ph.yesterday.steps == null ? '?' : ph.yesterday.steps} steps, ${ph.yesterday.late_min}m after midnight. ` : '') + (B.data_days >= 3 ? `7-day averages: ${fm(B.avg_screen_min)} screen, ${B.avg_steps == null ? '?' : B.avg_steps} steps.` : 'Only a few days of data so far.'));
+    lines.push(ph.known.length ? 'PHONE HABITS HE ALREADY KNOWS ABOUT (discussed; you may refer back naturally, e.g. when planning his week or running his futures): ' + ph.known.map(k => `${k.say} (${k.his_answer})`).join(' | ') : 'You have not discussed any phone or activity habits with him yet.');
+    if (ph.candidate) lines.push(`ONE PHONE HABIT YOU MAY GENTLY RAISE (pattern_id ${ph.candidate.id}): ${ph.candidate.say} Only if his day, sleep, energy, prayer or productivity comes up naturally in THIS conversation and he isn't rushed. Ask it as a question, never as judgement; then call note_phone_pattern with his answer. Never raise more than this one.`);
+    else lines.push('You are still getting to know his phone habits. Do not volunteer "I noticed" observations about his screen time or activity.');
+  }
   return `
 
 TODAY'S LIFE ENGINE (live data, UK time):
@@ -121,6 +131,7 @@ MONEY RULES (his bank, read-only via Lunch Flow; Monzo now, more banks later):
 - His goals: never be broke, and save more. When he names a target, call set_savings_goal (no upper limit). Be honest if the odds are poor and suggest the smallest change that fixes them.
 - Spending categories: Groceries, Eating out, Takeaways, Transport, Fuel, Shopping, Bills, Subscriptions, Housing, Health, Family, People, Charity, Entertainment, Travel, Personal care, Education, Fees, Cash, Business, Other.
 - Money is private: never read balances aloud during private mode or a meeting; keep it to "I'll tell you later". No lectures; one nudge at most, and celebrate wins (including sadaqah).
+- PHONE & ACTIVITY: for "how much have I been on my phone", "screen time", "how active have I been", "steps" call phone_today; for "how was my week" or a weekly reflection call weekly_reflection. Answer in one or two plain sentences, lead with the number, compare to his usual only if helpful, no lectures. Apps he marked as work don't count against him. The phone also sends him short nudges (long scrolling, after midnight, sitting still) that he controls in ⚙. When planning his day or week, you may suggest swapping a slice of his time-sink apps for a walk or a habit, once.
 - If bank access is due for renewal or broken, tell him to open Lunch Flow and reconnect (a minute's job).
 - GETTING TO KNOW HIM: treat him as someone you're still getting to know. You study his transactions quietly in the background, but you never dump what you've learned. Patterns surface one at a time, only once there's solid evidence, only when relevant, and as a question first. If he asks "what are my spending habits" or "why do I overspend", call explain_patterns: share only what it returns as known, plus at most the one candidate (as a question), and otherwise say honestly you're still learning him and ask what he thinks drives it. Phrase triggers gently, never as judgement. Never mention p-values or statistics jargon; say "I'm fairly sure" or "I think" instead.`;
 }
@@ -168,6 +179,9 @@ const LIFE_TOOLS = [
   { name: 'set_alarm', description: 'Set a real, loud phone alarm (FREYA Android app). Give time (+ optional date) or in_minutes.', parameters: OBJ({ time: STR('HH:MM 24h UK time'), date: STR('YYYY-MM-DD (optional; default the next time that clock time comes round)'), in_minutes: { type: 'INTEGER', description: 'Minutes from now, for timers' }, label: STR('Short label, e.g. "Fajr" or "Leave for JSE"') }, []) },
   { name: 'list_alarms', description: 'List the alarms set on his phone.', parameters: OBJ({}, []) },
   { name: 'cancel_alarm', description: 'Cancel a phone alarm by id (from list_alarms), or "all".', parameters: OBJ({ id: STR('Alarm id or "all"') }, ['id']) },
+  { name: 'phone_today', description: 'His phone use and activity today: screen time, unlocks, top apps, steps, longest sit, notifications, with his usual for comparison.', parameters: OBJ({}, []) },
+  { name: 'weekly_reflection', description: 'This week vs last week: average screen time, steps, late nights, long sits, nudges.', parameters: OBJ({}, []) },
+  { name: 'note_phone_pattern', description: 'Record his answer after you raised a phone/activity habit, so you never raise it again unprompted.', parameters: OBJ({ pattern_id: STR('pattern_id'), his_answer: STR('His view in a few words') }, ['pattern_id', 'his_answer']) },
   { name: 'enable_notifications', description: 'Show him the button to switch on phone notifications.', parameters: OBJ({ reason: STR('Short reason') }, []) }
 ];
 
@@ -183,6 +197,7 @@ async function loadContext() {
     const ctx = { memory: true, profile, memories, answers, life, pushOn: subs.length > 0, moneyConfigured: M.configured() };
     try { const md = await M.load(); if (md.accounts.length) { ctx.money = M.analyse(md); delete ctx.money.months; delete ctx.money.recurring;
       ctx.patterns = await PL.view(profile); ctx.patterns.drift = profile.onboarding_status === 'complete' ? await PL.driftCheck(md).catch(() => null) : null; } } catch (e) {}
+    ctx.phone = await PH.view(profile).catch(() => null);
     if (life && life.google && life.google.connected) {
       const now = new Date().toISOString();
       const [cal, deb, notes] = await Promise.all([

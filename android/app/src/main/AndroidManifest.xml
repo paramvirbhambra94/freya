@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
   <uses-permission android:name="android.permission.INTERNET"/>
   <uses-permission android:name="android.permission.RECORD_AUDIO"/>
   <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>
@@ -18,6 +18,13 @@
   <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
   <uses-permission android:name="android.permission.VIBRATE"/>
   <uses-permission android:name="android.permission.TURN_SCREEN_ON"/>
+  <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" tools:ignore="ProtectedPermissions"/>
+  <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION"/>
+
+  <queries>
+    <intent><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent>
+    <intent><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.HOME"/></intent>
+  </queries>
 
   <application
       android:label="@string/app_name"
@@ -56,6 +63,12 @@
     <service android:name=".WakeWordService" android:exported="false" android:foregroundServiceType="microphone"/>
     <service android:name=".AlarmService" android:exported="false" android:directBootAware="true" android:foregroundServiceType="mediaPlayback"/>
 
+    <service android:name=".FreyaNotifListener" android:exported="true" android:label="FREYA notification counts"
+        android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+      <intent-filter><action android:name="android.service.notification.NotificationListenerService"/></intent-filter>
+    </service>
+    <receiver android:name=".AwarenessReceiver" android:exported="false"/>
+    <receiver android:name=".NudgeActionReceiver" android:exported="false"/>
     <receiver android:name=".AlarmReceiver" android:exported="false" android:directBootAware="true"/>
     <receiver android:name=".BootReceiver" android:exported="true" android:directBootAware="true">
       <intent-filter>

@@ -45,7 +45,7 @@ object Overlay {
     private fun dp(c: Context, v: Int) = (v * c.resources.displayMetrics.density).toInt()
 
     @SuppressLint("SetJavaScriptEnabled", "ClickableViewAccessibility", "JavascriptInterface")
-    fun show(c: Context): Boolean {
+    fun show(c: Context, nudge: String? = null): Boolean {
         if (root != null) return true
         return try {
             val wm = c.getSystemService(WindowManager::class.java)
@@ -98,7 +98,7 @@ object Overlay {
                     }
                 }
                 layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(c, 150))
-                loadUrl("$BASE_URL/?wake=1&mini=1")
+                loadUrl("$BASE_URL/?wake=1&mini=1" + (if (nudge != null) "&nudge=" + Uri.encode(nudge) else ""))
             }
             panel.addView(w)
             val row = LinearLayout(c).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.END }

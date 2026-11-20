@@ -32,6 +32,7 @@ let pendingAction = null;
 // Android shell (FREYA app): native bridge for alarms + wake word. Absent in a normal browser.
 const APP = (() => { try { return !!(window.FreyaAndroid && window.FreyaAndroid.isApp()); } catch (e) { return false; } })();
 let wakePending = APP && new URLSearchParams(location.search).has('wake');
+let nudgePending = APP ? String(new URLSearchParams(location.search).get('nudge') || '').slice(0, 200) : '';
 // Floating panel over other apps (Android overlay): compact layout.
 if (APP) document.body.classList.add('app');
 if (APP && new URLSearchParams(location.search).has('mini')) document.body.classList.add('mini');
@@ -180,6 +181,14 @@ async function handleTool(f) {
     if (f.name === 'explain_patterns') { const r = await getJ('/api/money/patterns'); return r.ok ? JSON.stringify(r) : (r.error || 'unavailable'); }
     if (f.name === 'note_pattern') { const r = await post('/api/money/intro', { pattern_id: a.pattern_id, status: a.status }); return r.ok ? 'noted' : 'not saved'; }
     if (f.name === 'show_money') { openMoney(); return 'The money view is on his screen.'; }
+    if (f.name === 'phone_today') {
+      let live = null; try { if (APP && window.FreyaAndroid.phoneToday) live = JSON.parse(window.FreyaAndroid.phoneToday()); } catch (e) {}
+      const r = await getJ('/api/state?phone=today');
+      if (!live && (!r.ok || r.none)) return 'Phone awareness is not switched on yet (or has no data). Tell him he can turn it on in the FREYA app under the ⚙ settings: Usage access, Physical activity and Notification access.';
+      return JSON.stringify({ live_from_phone_now: live, from_server: r.ok ? { today: r.today, yesterday: r.yesterday, usual: r.baseline } : null });
+    }
+    if (f.name === 'weekly_reflection') { const r = await getJ('/api/state?phone=week'); return r.ok ? JSON.stringify(r) : (r.error || 'unavailable'); }
+    if (f.name === 'note_phone_pattern') { const r = await post('/api/state', { action: 'phone_note', id: a.pattern_id, answer: a.his_answer }); return r.ok ? 'noted' : 'not saved'; }
     if (f.name === 'enable_notifications') { showNotifyChip(true); return 'The button is on his screen now; ask him to tap it.'; }
     if (f.name === 'finish_onboarding') {
       const plan = { headline: a.headline, sections: a.sections || [], pledge: a.pledge };
@@ -273,6 +282,9 @@ async function connect(isReconnect) {
   } else if (j.brief) {
     briefPending = false; history.replaceState(null, '', '/');
     sock.send(JSON.stringify({ realtimeInput: { text: '(Cue: Eesah opened his morning brief. Begin it now.)' } })); setBusy(true);
+  } else if (nudgePending) {
+    const t = nudgePending; nudgePending = '';
+    sock.send(JSON.stringify({ realtimeInput: { text: '(Cue: spoken nudge from his phone, not his words: "' + t.replace(/["()]/g, '') + '". Say it to him now in one short, warm, light line in your own words, no lecture, then stop and wait. If he says not now or that it is work, accept it in a few words.)' } })); setBusy(true);
   }
   retries = 0;
 }

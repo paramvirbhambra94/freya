@@ -93,6 +93,7 @@ class MainActivity : Activity() {
     override fun onCreate(b: Bundle?) {
         super.onCreate(b)
         Channels.ensure(this)
+        try { Aware.schedule(this, soon = true) } catch (e: Exception) {}
         val wake = isWake(intent)
 
         web = WebView(this)

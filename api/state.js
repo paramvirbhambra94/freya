@@ -2,11 +2,15 @@
 const { readBody, setProfile } = require('./_db');
 const { requireAuth } = require('./_auth');
 const { lifeState, logHabit, addHabit, setPrivate } = require('./_life');
+const PH = require('./_phone');
 
 module.exports = async (req, res) => {
   if (!(await requireAuth(req, res))) return;
   try {
     if (req.method === 'GET') {
+      const q = req.query || {};
+      if (q.phone === 'today') return res.status(200).json(await PH.view().then(v => v ? { today: v.today, yesterday: v.yesterday, baseline: v.baseline } : { none: true }));
+      if (q.phone === 'week') return res.status(200).json(await PH.week());
       const s = await lifeState();
       return res.status(200).json({ schedule: s.schedule, habits: s.habits, private: s.private, briefTime: s.briefTime, google: s.google });
     }
@@ -20,6 +24,8 @@ module.exports = async (req, res) => {
         if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(b.time || '')) return res.status(400).json({ error: 'Use HH:MM' });
         await setProfile('brief_time', b.time); return res.status(200).json({ ok: true, time: b.time });
       }
+      case 'phone_upload': return res.status(200).json(await PH.upload(b));
+      case 'phone_note': return res.status(200).json(await PH.note(String(b.id || ''), b.answer));
       default: return res.status(400).json({ error: 'Unknown action' });
     }
   } catch (e) { return res.status(502).json({ error: 'Life engine error' }); }

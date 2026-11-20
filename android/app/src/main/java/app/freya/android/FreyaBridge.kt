@@ -55,6 +55,10 @@ class FreyaBridge(private val c: Context, private val ourSite: () -> Boolean, pr
             JSONObject().put("ok", true).put("uri", uri.toString()).toString()
         } catch (e: Exception) { err("could not save: " + (e.message ?: "error")) }
     }
+    @JavascriptInterface fun phoneToday(): String {
+        if (!ok()) return err("not allowed")
+        return try { Aware.liveToday(c).toString() } catch (e: Exception) { err("unavailable") }
+    }
     @JavascriptInterface fun openSettings() {
         h.post { c.startActivity(Intent(c, SettingsActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
     }

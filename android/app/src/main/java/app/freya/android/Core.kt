@@ -22,6 +22,7 @@ object Channels {
     const val WAKE = "wake"
     const val ALARM = "alarm"
     const val INFO = "info"
+    const val NUDGE = "nudge"
     fun ensure(c: Context) {
         val nm = c.getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(NotificationChannel(LISTEN, "Wake word (listening)", NotificationManager.IMPORTANCE_MIN).apply {
@@ -34,6 +35,9 @@ object Channels {
             description = "Alarms set by FREYA"; setSound(null, null); enableVibration(false); setBypassDnd(true)
         })
         nm.createNotificationChannel(NotificationChannel(INFO, "General", NotificationManager.IMPORTANCE_DEFAULT))
+        nm.createNotificationChannel(NotificationChannel(NUDGE, "Gentle nudges", NotificationManager.IMPORTANCE_DEFAULT).apply {
+            description = "Short nudges from FREYA about long scrolling, late nights and sitting still"
+        })
     }
 }
 
