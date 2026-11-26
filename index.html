@@ -22,7 +22,7 @@
     <div id="rings" aria-hidden="true"></div>
     <div class="work" aria-hidden="true"><i></i></div>
     <div class="orb" id="orb" role="button" tabindex="0" aria-label="Talk to FREYA" data-state="idle">
-      <div class="hud">
+      <div class="hud"><canvas id="freya-entity" aria-hidden="true" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none"></canvas>
         <div class="halo"></div>
         <div class="lyr l-inner"><svg viewBox="0 0 512 512"><path d="M344.78,119.3A163,163 0 0 1 397.16,174.5M319.69,105.96A163,163 0 0 1 328.73,110.13M405.48,191A163,163 0 0 1 409.17,200.25M392.7,344.78A163,163 0 0 1 337.5,397.16M406.04,319.69A163,163 0 0 1 401.87,328.73M321,405.48A163,163 0 0 1 311.75,409.17M167.22,392.7A163,163 0 0 1 114.84,337.5M192.31,406.04A163,163 0 0 1 183.27,401.87M106.52,321A163,163 0 0 1 102.83,311.75M119.3,167.22A163,163 0 0 1 174.5,114.84M105.96,192.31A163,163 0 0 1 110.13,183.27M191,106.52A163,163 0 0 1 200.25,102.83"/></svg></div>
         <div class="lyr l-ring"><svg viewBox="0 0 512 512"><path class="ring-main" d="M265.21,80.24A176,176 0 0 1 431.76,246.79M431.76,265.21A176,176 0 0 1 265.21,431.76M246.79,431.76A176,176 0 0 1 80.24,265.21M80.24,246.79A176,176 0 0 1 246.79,80.24"/><path class="ring-bold" d="M359.45,113.61A176,176 0 0 1 403.61,160.14M398.39,359.45A176,176 0 0 1 351.86,403.61M152.55,398.39A176,176 0 0 1 108.39,351.86M113.61,152.55A176,176 0 0 1 160.14,108.39"/></svg></div>
@@ -107,5 +107,5 @@
 <script src="/app.js"></script>
 <script src="/sections.js"></script>
 <script src="/eyes.js"></script>
-</body>
+<script src="/freya-entity.js" defer></script></body>
 </html>
