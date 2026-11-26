@@ -1,5 +1,5 @@
 // Daily life state: prayer times, habits/streaks, private mode, brief time.
-const { readBody, setProfile } = require('./_db');
+const { readBody, setProfile, getProfile } = require('./_db');
 const { requireAuth } = require('./_auth');
 const { lifeState, logHabit, addHabit, setPrivate } = require('./_life');
 const PH = require('./_phone');
@@ -10,6 +10,7 @@ module.exports = async (req, res) => {
   try {
     if (req.method === 'GET') {
       const q = req.query || {};
+      if(q.neuro==='preferences'){const p=await getProfile();return res.status(200).json({islamicMode:p.neuro_islamic_mode==='true',configured:p.neuro_islamic_mode!=null});}
       if (q.sec) return res.status(200).json(await SEC.handle(req, {}));
       if (q.phone === 'today') return res.status(200).json(await PH.view().then(v => v ? { today: v.today, yesterday: v.yesterday, baseline: v.baseline } : { none: true }));
       if (q.phone === 'week') return res.status(200).json(await PH.week());
@@ -20,6 +21,7 @@ module.exports = async (req, res) => {
     const b = await readBody(req);
     if (String(b.action || '').startsWith('sec_')) { const r = await SEC.handle(req, b); return res.status(r && r.ok === false && /not_ready/.test(r.error || '') ? 409 : 200).json(r); }
     switch (b.action) {
+      case 'neuro_islamic_mode': {if(typeof b.enabled!=='boolean')return res.status(400).json({error:'Boolean required'});await setProfile('neuro_islamic_mode',String(b.enabled));return res.status(200).json({ok:true,islamicMode:b.enabled});}
       case 'log': return res.status(200).json(await logHabit(b.name, b.status || 'done', b.day));
       case 'add_habit': return res.status(200).json(await addHabit(b.name));
       case 'private': return res.status(200).json(await setPrivate(!!b.on, b.minutes));
