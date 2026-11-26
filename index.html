@@ -3,18 +3,18 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#0b0805">
+<meta name="theme-color" content="#080D17">
 <meta name="color-scheme" content="dark">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<title>F.R.E.Y.A.</title>
+<title>NEURO · Freya</title>
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
-<link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="/style.css?v=neuro01">
 </head>
 <body>
-<div id="splash" aria-hidden="true"><svg viewBox="0 0 512 512"><circle class="s-ring" cx="256" cy="256" r="176"/><path class="s-ticks" d="M256,96L256,66M416,256L446,256M256,416L256,446M96,256L66,256"/><path class="s-bold" d="M359.45,113.61A176,176 0 0 1 403.61,160.14M398.39,359.45A176,176 0 0 1 351.86,403.61M152.55,398.39A176,176 0 0 1 108.39,351.86M113.61,152.55A176,176 0 0 1 160.14,108.39"/><path class="s-f" d="M208.5,177.5L337.5,177.5L308.5,206.5L229,206.5L218.5,217L218.5,242.5L306,242.5L277.5,271.5L229,271.5L218.5,282L218.5,327.5L185,364.5L185,199Z"/></svg><p>F.R.E.Y.A.</p></div>
+<div id="splash" aria-hidden="true"><svg viewBox="0 0 512 512"><circle class="s-ring" cx="256" cy="256" r="176"/><path class="s-ticks" d="M256,96L256,66M416,256L446,256M256,416L256,446M96,256L66,256"/><path class="s-bold" d="M359.45,113.61A176,176 0 0 1 403.61,160.14M398.39,359.45A176,176 0 0 1 351.86,403.61M152.55,398.39A176,176 0 0 1 108.39,351.86M113.61,152.55A176,176 0 0 1 160.14,108.39"/><path class="s-f" d="M208.5,177.5L337.5,177.5L308.5,206.5L229,206.5L218.5,217L218.5,242.5L306,242.5L277.5,271.5L229,271.5L218.5,282L218.5,327.5L185,364.5L185,199Z"/></svg><p>NEURO</p></div>
 <script>(function(){var s=document.getElementById('splash');try{if(sessionStorage.getItem('fsplash')||/[?&](wake|mini)\b/.test(location.search)||matchMedia('(prefers-reduced-motion: reduce)').matches){s.remove();return}sessionStorage.setItem('fsplash','1')}catch(e){}setTimeout(function(){s&&s.remove()},1700)})();</script>
 <canvas id="bg" aria-hidden="true"></canvas>
 <header id="top" hidden><div id="next"></div><div id="dots"></div></header>
@@ -34,7 +34,7 @@
     </div>
   </div>
   <div class="info">
-    <h1>F.R.E.Y.A.</h1>
+    <h1>NEURO</h1><p class="neuro-sub">POWERED BY F.R.E.Y.A.</p>
     <p id="status" aria-live="polite">Standing by.</p>
     <div id="captions" aria-live="polite"><div class="her"></div><div class="him"></div></div>
   </div>
@@ -62,7 +62,7 @@
 <section id="lock" hidden>
   <div class="lock-inner">
     <img class="mark-img" src="/mark.svg" alt="" width="120" height="120">
-    <h1>F.R.E.Y.A.</h1>
+    <h1>NEURO</h1><p class="neuro-sub">POWERED BY F.R.E.Y.A.</p>
     <div data-v="enrol" hidden>
       <p>One-time setup, Eesah. Lock me to your fingerprint so nobody else can open your life.</p>
       <button id="btn-enrol">Set up fingerprint</button>
