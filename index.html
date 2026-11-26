@@ -11,14 +11,13 @@
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
-<link rel="stylesheet" href="/style.css?v=neuro01">
+<link rel="stylesheet" href="/style.css?v=neuro02">
 </head>
 <body>
-<div id="splash" aria-hidden="true"><svg viewBox="0 0 512 512"><circle class="s-ring" cx="256" cy="256" r="176"/><path class="s-ticks" d="M256,96L256,66M416,256L446,256M256,416L256,446M96,256L66,256"/><path class="s-bold" d="M359.45,113.61A176,176 0 0 1 403.61,160.14M398.39,359.45A176,176 0 0 1 351.86,403.61M152.55,398.39A176,176 0 0 1 108.39,351.86M113.61,152.55A176,176 0 0 1 160.14,108.39"/><path class="s-f" d="M208.5,177.5L337.5,177.5L308.5,206.5L229,206.5L218.5,217L218.5,242.5L306,242.5L277.5,271.5L229,271.5L218.5,282L218.5,327.5L185,364.5L185,199Z"/></svg><p>NEURO</p></div>
-<script>(function(){var s=document.getElementById('splash');try{if(sessionStorage.getItem('fsplash')||/[?&](wake|mini)\b/.test(location.search)||matchMedia('(prefers-reduced-motion: reduce)').matches){s.remove();return}sessionStorage.setItem('fsplash','1')}catch(e){}setTimeout(function(){s&&s.remove()},1700)})();</script>
+<div id="splash" aria-hidden="true"><img src="/mark.svg" width="100" height="100" alt=""><p>NEURO</p></div><script>(function(){var s=document.getElementById("splash");setTimeout(function(){s.remove()},650)})();</script>
 <canvas id="bg" aria-hidden="true"></canvas>
 <header id="top" hidden><div id="next"></div><div id="dots"></div></header>
-<main>
+<main><div class="neuro-heading"><strong>NEURO</strong><small>PERSONAL ALPHA</small></div>
   <div class="stage">
     <div id="rings" aria-hidden="true"></div>
     <div class="work" aria-hidden="true"><i></i></div>
@@ -40,7 +39,7 @@
   </div>
   <div id="eyes" hidden><button id="eye" aria-label="Show Freya something"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8.5h3l1.6-2.3h6.8L17 8.5h3v10H4z"/><circle cx="12" cy="13.2" r="3.4"/><path d="M17.6 11h.01"/></svg></button></div>
   <nav id="tiles" hidden aria-label="Your spaces"></nav>
-</main>
+<div class="neuro-panel"><small>YOUR INTELLIGENCE</small><p>Speak to Freya or explore your spaces.</p><div class="neuro-actions"><button type="button" id="neuro-talk">Talk</button><button type="button" id="neuro-type">Type</button><button type="button" id="neuro-history">History</button></div></div></main><script src="/neuro-shell.js" defer></script>
 <form id="textbar" hidden autocomplete="off"><input id="textin" placeholder="Type to Freya…" enterkeyhint="send"><button>Send</button></form>
 <div id="toast" aria-live="polite"></div>
 <button id="redo" hidden>Redo setup</button>
