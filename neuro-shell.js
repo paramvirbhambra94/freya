@@ -1,0 +1,1 @@
+(()=>{const $=id=>document.getElementById(id);$('neuro-talk').onclick=()=>$('orb').click();$('neuro-type').onclick=()=>{ $('textbar').hidden=false;$('textin').focus(); };$('neuro-history').onclick=()=>{if(!$('hist').hidden)$('hist').click();else $('status').textContent='Conversation history is unavailable in this session.';};})();
