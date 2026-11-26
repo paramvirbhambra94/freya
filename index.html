@@ -11,13 +11,13 @@
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
-<link rel="stylesheet" href="/style.css?v=neuro02">
+<link rel="stylesheet" href="/style.css?v=neuro03">
 </head>
 <body>
 <div id="splash" aria-hidden="true"><img src="/mark.svg" width="100" height="100" alt=""><p>NEURO</p></div><script>(function(){var s=document.getElementById("splash");setTimeout(function(){s.remove()},650)})();</script>
 <canvas id="bg" aria-hidden="true"></canvas>
 <header id="top" hidden><div id="next"></div><div id="dots"></div></header>
-<main><div class="neuro-heading"><strong>NEURO</strong><small>PERSONAL ALPHA</small></div>
+<main><header class="nhead"><div><small>PERSONAL OPERATING SYSTEM</small><strong>neuro<span>.</span></strong></div><button id="n-settings" aria-label="Settings">⚙</button></header><div id="n-home"><p class="n-eyebrow" id="n-date"></p><h2 id="n-greeting"></h2><p class="n-muted">Your life, connected.</p></div>
   <div class="stage">
     <div id="rings" aria-hidden="true"></div>
     <div class="work" aria-hidden="true"><i></i></div>
@@ -39,7 +39,7 @@
   </div>
   <div id="eyes" hidden><button id="eye" aria-label="Show Freya something"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8.5h3l1.6-2.3h6.8L17 8.5h3v10H4z"/><circle cx="12" cy="13.2" r="3.4"/><path d="M17.6 11h.01"/></svg></button></div>
   <nav id="tiles" hidden aria-label="Your spaces"></nav>
-<div class="neuro-panel"><small>YOUR INTELLIGENCE</small><p>Speak to Freya or explore your spaces.</p><div class="neuro-actions"><button type="button" id="neuro-talk">Talk</button><button type="button" id="neuro-type">Type</button><button type="button" id="neuro-history">History</button></div></div></main><script src="/neuro-shell.js" defer></script>
+<div class="neuro-panel" hidden><small>YOUR INTELLIGENCE</small><p>Speak to Freya or explore your spaces.</p><div class="neuro-actions"><button type="button" id="neuro-talk">Talk</button><button type="button" id="neuro-type">Type</button><button type="button" id="neuro-history">History</button></div></div><section id="n-dashboard"><div class="n-section-title"><h2>Your spaces</h2><span>Explore</span></div><div class="n-grid"><button data-space="body"><i>＋</i><strong>Physical</strong><small>Health &amp; recovery</small></button><button data-space="finance"><i>£</i><strong>Finance</strong><small>Money &amp; planning</small></button><button data-space="mind"><i>◈</i><strong>Mind</strong><small>Growth &amp; wellbeing</small></button><button data-space="connections"><i>◎</i><strong>Connect</strong><small>Relationships</small></button><button data-space="work"><i>▤</i><strong>Work</strong><small>Projects &amp; ambition</small></button><button data-space="vault"><i>◇</i><strong>Vault</strong><small>Records &amp; insights</small></button></div><div class="n-section-title"><h2>Daily intelligence</h2></div><article class="n-card"><strong>Plan your next move</strong><p>Ask Freya to review your priorities and help you decide what matters today.</p><button id="n-plan">Discuss with Freya</button></article></section><section id="n-preferences" hidden><h2>Settings</h2><article class="n-card"><strong>Device controls</strong><p>Manage microphone, wake phrase and native permissions in the installed app.</p><button id="n-native">Android settings</button></article><article class="n-card"><strong>Intelligence capabilities</strong><p>Ambient awareness, Sleep Focus and autonomous actions are not enabled in this build.</p></article></section></main><nav id="n-nav" aria-label="Main navigation"><button data-page="home">⌂<span>Home</span></button><button data-page="chat">◉<span>Freya</span></button><button data-page="life">▦<span>Life</span></button><button data-page="settings">⚙<span>Settings</span></button></nav><script src="/neuro-shell.js?v=03" defer></script>
 <form id="textbar" hidden autocomplete="off"><input id="textin" placeholder="Type to Freya…" enterkeyhint="send"><button>Send</button></form>
 <div id="toast" aria-live="polite"></div>
 <button id="redo" hidden>Redo setup</button>
