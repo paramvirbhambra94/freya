@@ -1,6 +1,6 @@
 // Google Workspace: OAuth tokens (encrypted, server-only), Calendar, Gmail (read + drafts only, never send), Drive (read).
 const crypto = require('crypto');
-const { db, getSecret, setSecret, getProfile, setProfile } = require('./_db');
+const { db, getSecret, setSecret, getProfile, setProfile, assertOwner } = require('./_db');
 
 const REDIRECT = 'https://freya-black.vercel.app/api/google/callback';
 const SCOPES = ['openid', 'email', 'https://www.googleapis.com/auth/calendar.events', 'https://www.googleapis.com/auth/gmail.readonly', 'https://www.googleapis.com/auth/gmail.compose', 'https://www.googleapis.com/auth/drive.readonly'];
@@ -21,6 +21,7 @@ function authUrl(c, state) {
   return 'https://accounts.google.com/o/oauth2/v2/auth?' + p.toString();
 }
 async function exchange(code) {
+  assertOwner('google');
   const c = await creds();
   const r = await fetch('https://oauth2.googleapis.com/token', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ code, client_id: c.id, client_secret: c.secret, redirect_uri: REDIRECT, grant_type: 'authorization_code' }) });
   const j = await r.json();
@@ -36,6 +37,7 @@ async function exchange(code) {
 }
 let cached = null;
 async function accessToken() {
+  assertOwner('google'); // the Google refresh token is the owner's; never usable from another account
   if (cached && cached.exp > Date.now()) return cached.token;
   const c = await creds(); if (!c) throw new Error('google_not_configured');
   let refresh; try { refresh = await dec(await getSecret('google_refresh')); } catch (e) { throw new Error('google_not_connected'); }
@@ -46,6 +48,7 @@ async function accessToken() {
   return cached.token;
 }
 async function disconnect() {
+  assertOwner('google');
   try { const t = await dec(await getSecret('google_refresh')); await fetch('https://oauth2.googleapis.com/revoke?token=' + encodeURIComponent(t), { method: 'POST' }); } catch (e) {}
   await db('app_secrets?key=eq.google_refresh', { method: 'DELETE' });
   await db('calendar_events?id=neq.__none__', { method: 'DELETE' });

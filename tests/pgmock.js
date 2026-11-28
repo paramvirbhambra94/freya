@@ -16,7 +16,7 @@ function makeMock() {
   };
   function filters(params) {
     const fs = [];
-    for (const [k, v] of params) { if (['select', 'order', 'limit', 'on_conflict'].includes(k)) continue; const m = v.match(/^(eq|neq|gt|lt|gte|lte|in)\.(.*)$/); if (m) fs.push(r => cmp(r[k], m[1], decodeURIComponent(m[2]))); }
+    for (const [k, v] of params) { if (['select', 'order', 'limit', 'on_conflict'].includes(k)) continue; const m = v.match(/^(eq|neq|gt|lt|gte|lte|in)\.(.*)$/); if (m) fs.push(r => (k === 'user_id' && r[k] == null) || cmp(r[k], m[1], decodeURIComponent(m[2]))); /* seeded rows without user_id act like the column default (owner) */ }
     return r => fs.every(f => f(r));
   }
   async function fetchMock(url, opts = {}) {
@@ -40,7 +40,7 @@ function makeMock() {
       const body = JSON.parse(opts.body); const arr = Array.isArray(body) ? body : [body]; const out = [];
       const conflict = u.searchParams.get('on_conflict');
       for (const r of arr) {
-        if (conflict) { const ex = T[t].find(x => x[conflict] === r[conflict]); if (ex) { if (/merge/.test(prefer)) Object.assign(ex, r); continue; } }
+        if (conflict) { const cols = conflict.split(','); const ex = T[t].find(x => cols.every(c => (c === 'user_id' && x[c] == null) || String(x[c]) === String(r[c]))); if (ex) { if (/merge/.test(prefer)) Object.assign(ex, r); continue; } }
         const row = { created_at: new Date().toISOString(), ...r };
         if (row.id == null) row.id = ['neuro_actions', 'neuro_futures', 'neuro_sleep'].includes(t) ? crypto.randomUUID() : idn++;
         if (t === 'neuro_actions') { row.status = row.status || 'pending'; row.expires_at = row.expires_at || new Date(Date.now() + 18e5).toISOString(); }

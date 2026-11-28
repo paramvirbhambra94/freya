@@ -1,11 +1,13 @@
 // Phase 6: money. READ-ONLY bank data via Lunch Flow (x-api-key), stored server-only in Supabase.
 // Sync (~every 6h from cron), auto-categorise, recurring bills, income, insights, Monte Carlo outcomes.
-const { db, getProfile, setProfile, london } = require('./_db');
+const { db, getProfile, setProfile, london, isOwner, assertOwner } = require('./_db');
 const LF = 'https://www.lunchflow.app/api/v1';
 const SYNC_EVERY_H = 6, CONSENT_DAYS = 90, RENEW_WARN_DAYS = 7;
-const configured = () => !!process.env.LUNCHFLOW_API_KEY;
+// Banking (Lunch Flow) is the owner's own connection: other accounts never see it as configured.
+const configured = () => !!process.env.LUNCHFLOW_API_KEY && isOwner();
 
 async function lf(path) {
+  assertOwner('money');
   const r = await fetch(LF + path, { headers: { 'x-api-key': process.env.LUNCHFLOW_API_KEY }, signal: AbortSignal.timeout(25000) });
   if (!r.ok) throw new Error('lunchflow_' + r.status);
   return r.json();
@@ -82,6 +84,7 @@ async function aiCategorise(items) {
 // ---------- Sync ----------
 // Records the stage and any error (message only, never keys) so a stalled bank feed is visible instead of silent.
 async function sync(opts) {
+  assertOwner('money');
   try { const r = await syncInner(opts); if (r && !r.skipped) await setProfile('money_last_error', ''); return r; }
   catch (e) { try { await setProfile('money_last_error', JSON.stringify({ at: new Date().toISOString(), error: String(e && e.message || e).slice(0, 160) })); } catch (x) {} throw e; }
 }
@@ -207,6 +210,7 @@ function recurring(spend) {
 }
 
 async function load(months = 24) {
+  assertOwner('money');
   const today = london().date;
   const [accounts, txs, prof] = await Promise.all([
     db('bank_accounts?select=id,name,institution,status,account_type,balance,currency,balance_at,connection_id,connection_since&order=balance.desc.nullslast'),

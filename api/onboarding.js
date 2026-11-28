@@ -1,8 +1,8 @@
 // Onboarding state, answers, plan, pledge and emergency contacts.
-const { db, configured, getProfile, setProfile, readBody, clip } = require('./_db');
-const { requireAuth } = require('./_auth');
+const { db, configured, getProfile, setProfile, readBody, clip, isOwner } = require('./_db');
+const { requireAuth, withUser } = require('./_auth');
 
-module.exports = async (req, res) => {
+module.exports = withUser(async (req, res) => {
   if (!(await requireAuth(req, res))) return;
   if (!configured()) return res.status(200).json({ configured: false });
   try {
@@ -38,9 +38,10 @@ module.exports = async (req, res) => {
           .filter(c => c.name && c.phone);
         if (!text) return res.status(400).json({ error: 'Pledge text missing' });
         if (!sig.startsWith('data:image/png;base64,') || sig.length > 1500000) return res.status(400).json({ error: 'Signature missing' });
-        if (contacts.length < 2) return res.status(400).json({ error: 'Add at least two emergency contacts' });
+        // The owner chose two emergency contacts as part of his pledge; for other accounts they are optional.
+        if (isOwner() && contacts.length < 2) return res.status(400).json({ error: 'Add at least two emergency contacts' });
         await db('emergency_contacts?id=gt.0', { method: 'DELETE' }); // re-run replaces old contacts
-        await db('emergency_contacts', { method: 'POST', body: contacts });
+        if (contacts.length) await db('emergency_contacts', { method: 'POST', body: contacts });
         await db('pledges', { method: 'POST', body: { text, signature_png: sig } });
         await setProfile('onboarding_status', 'complete');
         await setProfile('onboarding_completed_at', new Date().toISOString());
@@ -55,4 +56,4 @@ module.exports = async (req, res) => {
   } catch (e) {
     return res.status(502).json({ error: 'Memory service error' });
   }
-};
+});

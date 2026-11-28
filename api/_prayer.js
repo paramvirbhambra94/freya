@@ -1,5 +1,5 @@
 // Prayer times: Mawaqit mosque page (confData) with daily cache in Supabase; calculated (MWL) fallback.
-const { db, getProfile, london } = require('./_db');
+const { db, getProfile, london, isOwner } = require('./_db');
 const NAMES = ['fajr', 'dhuhr', 'asr', 'maghrib', 'isha'];
 const UA = 'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Mobile Safari/537.36';
 const toMin = hm => { const [h, m] = String(hm).split(':').map(Number); return h * 60 + m; };
@@ -95,7 +95,9 @@ async function getSchedule(profile) {
   let sched = null, conf = null;
   if (!travel && slug) { try { conf = await getConf(slug); sched = days.map(x => dayFromConf(conf, x.y, x.m, x.d, x.weekday)); if (sched.some(s => !s)) sched = null; } catch (e) { sched = null; } }
   if (!sched) {
-    const lat = travel ? travel.lat : (conf ? conf.latitude : 52.4486), lng = travel ? travel.lng : (conf ? conf.longitude : -1.848);
+    // Fallback location: the owner's home area; other accounts default to central London until they set a location.
+    const home = isOwner() ? [52.4486, -1.848] : [51.5074, -0.1278];
+    const lat = travel ? travel.lat : (conf ? conf.latitude : home[0]), lng = travel ? travel.lng : (conf ? conf.longitude : home[1]);
     sched = days.map(x => dayCalc(lat, lng, x.y, x.m, x.d, x.weekday, travel ? (travel.label || 'your current location') : (profile.mosque_name || null)));
   }
   const after = +(profile.private_after_iqamah_min || 15);

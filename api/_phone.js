@@ -11,6 +11,7 @@ const apps = (a, n = 15) => (Array.isArray(a) ? a : []).slice(0, n).map(x => ({
 }));
 
 async function upload(b) {
+  require('./_db').assertOwner('phone');
   const days = (Array.isArray(b.days) ? b.days : []).slice(0, 3).filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d.day || ''));
   if (days.length) {
     for (const row of days.map(d => ({
@@ -39,6 +40,7 @@ async function upload(b) {
 
 // Times the phone must not nudge: salah windows (adhan -> iqamah + buffer, Jumu'ah), manual stand-down, meetings. Next ~30h.
 async function quietWindows() {
+  if (!require('./_db').isOwner()) return null; // phone awareness is the owner's Android app only
   const profile = await getProfile();
   const s = await getSchedule(profile);
   const out = [];
@@ -67,6 +69,7 @@ const avg = a => a.length ? a.reduce((x, y) => x + y, 0) / a.length : null;
 
 // Baselines + patterns. Patterns follow the "get to know him gradually" rule: one candidate at a time, as a question.
 async function view(profile) {
+  if (!require('./_db').isOwner()) return null; // phone awareness is the owner's Android app only
   profile = profile || await getProfile();
   const rows = await db('phone_days?select=*&order=day.desc&limit=28');
   if (!rows.length) return null;
@@ -107,6 +110,7 @@ function summary(r) {
     noisiest: (r.notif_by_app || []).slice(0, 3).map(a => `${a.label || a.app} ${a.n}`), longest_session: r.longest_session };
 }
 async function week() {
+  require('./_db').assertOwner('phone');
   const rows = await db('phone_days?select=*&order=day.desc&limit=15');
   const today = london().date;
   const full = rows.filter(r => r.day !== today);
@@ -117,6 +121,7 @@ async function week() {
   return { this_week: agg(a), last_week: agg(b), nudges_sent: nudges, nudges_pushed_back: ignored, best_day: a.slice().sort((x, y) => x.screen_min - y.screen_min)[0]?.day || null };
 }
 async function note(id, answer) {
+  require('./_db').assertOwner('phone');
   const profile = await getProfile();
   let known = []; try { known = JSON.parse(profile.phone_known || '[]'); } catch (e) {}
   const v = await view(profile).catch(() => null);

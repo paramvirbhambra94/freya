@@ -1,6 +1,6 @@
 // Daily life state: prayer times, habits/streaks, private mode, brief time.
-const { readBody, setProfile, getProfile } = require('./_db');
-const { requireAuth } = require('./_auth');
+const { readBody, setProfile, getProfile, isOwner, db } = require('./_db');
+const { requireAuth, withUser } = require('./_auth');
 const { lifeState, logHabit, addHabit, setPrivate } = require('./_life');
 const PH = require('./_phone');
 const NEURO = require('./_neuro');
@@ -8,7 +8,7 @@ const SEC = require('./_sections');
 const SAL = require('./_salah');
 const AUTH = require('./_authority');
 
-module.exports = async (req, res) => {
+module.exports = withUser(async (req, res) => {
   if (!(await requireAuth(req, res))) return;
   try {
     if (req.method === 'GET') {
@@ -24,6 +24,7 @@ module.exports = async (req, res) => {
         return res.status(200).json(await G());
       }
       if (q.sec) return res.status(200).json(await SEC.handle(req, {}));
+      if (q.phone && !isOwner()) return res.status(403).json({ error: 'Phone awareness is only available in the owner\'s Android app.' });
       if (q.phone === 'today') return res.status(200).json(await PH.view().then(v => v ? { today: v.today, yesterday: v.yesterday, baseline: v.baseline } : { none: true }));
       if (q.phone === 'week') return res.status(200).json(await PH.week());
       const s = await lifeState();
@@ -34,7 +35,13 @@ module.exports = async (req, res) => {
     if (String(b.action || '').startsWith('sec_')) { const r = await SEC.handle(req, b); return res.status(r && r.ok === false && /not_ready/.test(r.error || '') ? 409 : 200).json(r); }
     switch (b.action) {
       case 'neuro_goal': return res.status(200).json(await NEURO.goal(b));
-      case 'neuro_islamic_mode': { if (typeof b.enabled !== 'boolean') return res.status(400).json({ error: 'Boolean required' }); await setProfile('neuro_islamic_mode', String(b.enabled)); return res.status(200).json({ ok: true, islamicMode: b.enabled }); }
+      case 'neuro_islamic_mode': {
+        if (typeof b.enabled !== 'boolean') return res.status(400).json({ error: 'Boolean required' });
+        await setProfile('neuro_islamic_mode', String(b.enabled));
+        // A new account switching Islamic Mode on gets its own five prayers to track (the owner already has his).
+        if (b.enabled) { const have = await db('habits?select=id&kind=eq.prayer'); if (!have.length) await db('habits', { method: 'POST', body: ['Fajr', 'Dhuhr', 'Asr', 'Maghrib', 'Isha'].map((name, i) => ({ name, kind: 'prayer', sort: i + 1 })) }); }
+        return res.status(200).json({ ok: true, islamicMode: b.enabled });
+      }
       case 'neuro_learning': return res.status(200).json(await NEURO.setLearning(b));
       case 'neuro_mode': return res.status(200).json(await NEURO.setMode(b));
       case 'neuro_guest': return res.status(200).json(await NEURO.setGuest(b));
@@ -62,9 +69,12 @@ module.exports = async (req, res) => {
         if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(b.time || '')) return res.status(400).json({ error: 'Use HH:MM' });
         await setProfile('brief_time', b.time); return res.status(200).json({ ok: true, time: b.time });
       }
+      case 'phone_upload': case 'phone_note': if (!isOwner()) return res.status(403).json({ error: 'Phone awareness is only available in the owner\'s Android app.' }); break;
+    }
+    switch (b.action) {
       case 'phone_upload': return res.status(200).json(await PH.upload(b));
       case 'phone_note': return res.status(200).json(await PH.note(String(b.id || ''), b.answer));
       default: return res.status(400).json({ error: 'Unknown action' });
     }
-  } catch (e) { if (e.status === 400) return res.status(400).json({ error: e.message }); return res.status(502).json({ error: /section_not_ready/.test(e.message) ? 'This section is not ready yet.' : /no_gemini_key/.test(e.message) ? 'Freya\'s reasoning is not configured here.' : 'Life engine error' }); }
-};
+  } catch (e) { if (e.ownerOnly || e.status === 403) return res.status(403).json({ error: 'Not available on this account.' }); if (e.status === 400) return res.status(400).json({ error: e.message }); return res.status(502).json({ error: /section_not_ready/.test(e.message) ? 'This section is not ready yet.' : /no_gemini_key/.test(e.message) ? 'Freya\'s reasoning is not configured here.' : 'Life engine error' }); }
+});

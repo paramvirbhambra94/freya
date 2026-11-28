@@ -7,7 +7,8 @@ const { makeMock } = require('./pgmock');
 const mock = makeMock(); global.fetch = mock;
 const AUTH = require('../api/_authority');
 const N = require('../api/_neuro');
-const { london } = require('../api/_db');
+const { london, als, ownerCtx } = require('../api/_db');
+als.enterWith(ownerCtx()); // these tests exercise the owner's account (multi-user scoping is covered in isolation.int.js)
 const T = mock.tables;
 const reset = () => { for (const k of Object.keys(T)) delete T[k]; T.profile = []; T.habits = []; T.habit_logs = []; };
 

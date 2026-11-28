@@ -2,7 +2,8 @@
 // Flow per section: onboarding questions -> ~5 minute real build (Gemini plans the section) -> ready space
 // where he drops things in. Raw uploads live in the private "growth" bucket for 24h; only insights are kept.
 const crypto = require('crypto');
-const { db, storage, SUPABASE_URL, getProfile, clip } = require('./_db');
+const { db, storage, SUPABASE_URL, getProfile, clip, storagePrefix, isOwner } = require('./_db');
+const WHO = require('./_who');
 
 const BUCKET = 'growth';
 const RAW_HOURS = 24;
@@ -92,6 +93,7 @@ const DEFAULTS = {
 // ---------------- Gemini helpers ----------------
 async function gen(parts, schema, { models = ['gemini-flash-latest', 'gemini-flash-lite-latest'], timeout = 25000, temperature = 0.6 } = {}) {
   const key = process.env.GEMINI_API_KEY; if (!key) throw new Error('no_gemini_key');
+  parts = WHO.personalizeAll(parts); // other accounts: none of the owner's name/work/masjid in their prompts
   const body = JSON.stringify({ contents: [{ role: 'user', parts }], generationConfig: { temperature, ...(schema ? { responseMimeType: 'application/json', responseSchema: schema } : {}) } });
   let last = 'gemini_failed';
   for (const m of models.flatMap(x => [x, x + '#retry'])) {
@@ -125,7 +127,27 @@ const CONFIG_SCHEMA = OBJ({
   facts: ARR(S('a durable fact about him from his answers, third person'), '3-6 facts')
 });
 
+// Other accounts: neutral briefs (the owner's are about his own life).
+const GENERAL_BRIEF = {
+  connections: 'Connections: how they communicate with the people who matter to them (partner, family, friends, work). Calm, confident, clear and kind. Uploads: exported chats with THEIR lines marked ME and others THEM; pasted messages.',
+  mind: "Mind: headspace, mood, stress, reflection and (only if they use it) faith. Uploads: journal entries, reflections, notes.",
+  work: 'Work & Ambition: their work, studies or business, career growth and goals. Uploads: documents, decks, screenshots, call notes.'
+};
+const nm = k => WHO.personalize(META[k].name);
+const GENERAL_Q = { mind: [
+  "How's your headspace lately, honestly? Calm, scattered, heavy, driven?",
+  "What lifts you, and what drains you, in a normal week?",
+  "When you're low or stressed, what do you usually reach for?",
+  "Is there anything that grounds you: a practice, faith, people, places? Anything you want to build up?",
+  "How do you like to reflect: writing, talking it out, or quick check-ins?",
+  "What thought patterns keep coming back that you'd like to break?",
+  "When you have a bad day, how does it spill into the rest of your life: work, money, people?",
+  "What would a strong, steady you look like three months from now?",
+  "When's the best time each day for me to give you a reflection prompt?"
+] };
+const questionsFor = key => (!isOwner() && GENERAL_Q[key]) ? GENERAL_Q[key] : (META[key].questions || []).map(q => WHO.personalize(q));
 function sectionBrief(key) {
+  if (!isOwner() && GENERAL_BRIEF[key]) return GENERAL_BRIEF[key];
   return { body: 'Body: fitness, weight, physique, nutrition, training. Uploads: progress photos, meal photos, gym clips (as keyframes), weigh-ins.',
     connections: 'Connections: how he communicates with potential partners (marriage-minded, Muslim values), family and business contacts. He wants to be a high value man: calm, confident, clear, kind, leads well, not needy. Uploads: exported chats with HIS lines marked ME and others THEM; pasted messages.',
     mind: "Mind & Deen: headspace, mood, stress, reflection, and his deen (salah, Qur'an, dhikr, dua). Uploads: journal entries, reflections, Qur'an/dua notes.",
@@ -167,13 +189,13 @@ async function overview() {
   const building = all.filter(s => s.status === 'building');
   for (const s of building) { try { await advance(s); } catch (e) {} }
   const fresh = building.length ? Object.fromEntries((await db('sections?select=*')).map(s => [s.key, s])) : by;
-  return { sections: ORDER.map(k => ({ key: k, name: META[k].name, ...publicState(fresh[k]) })) };
+  return { sections: ORDER.map(k => ({ key: k, name: nm(k), ...publicState(fresh[k]) })) };
 }
 
 async function detail(key) {
   let s = await getSection(key);
   if (s && s.status === 'building') { try { await advance(s); } catch (e) {} s = await getSection(key); }
-  const out = { key, name: META[key].name, intro: META[key].intro, questions: META[key].questions, ...publicState(s) };
+  const out = { key, name: nm(key), intro: WHO.personalize(META[key].intro), questions: questionsFor(key), ...publicState(s) };
   if (s && s.status === 'onboarding') out.answers = s.answers;
   if (s && s.status === 'ready') {
     const [ins, mets, items] = await Promise.all([
@@ -194,14 +216,14 @@ async function detail(key) {
 
 // ---------------- Onboarding + build ----------------
 async function saveAnswers(key, answers, finish) {
-  const clean = (Array.isArray(answers) ? answers : []).slice(0, 14).map((a, i) => ({ q: clip(META[key].questions[i] || (a && a.q), 400), a: clip(a && a.a, 2500).trim() }));
+  const clean = (Array.isArray(answers) ? answers : []).slice(0, 14).map((a, i) => ({ q: clip(questionsFor(key)[i] || (a && a.q), 400), a: clip(a && a.a, 2500).trim() }));
   const s = await getSection(key);
   if (s && s.status !== 'onboarding') return { ok: false, error: 'This section is already ' + s.status };
   if (!finish) {
     await db('sections?on_conflict=key', { method: 'POST', prefer: 'resolution=merge-duplicates', body: { key, status: 'onboarding', answers: clean, updated_at: now() } });
     return { ok: true };
   }
-  if (clean.filter(x => x.a).length < Math.ceil(META[key].questions.length / 2)) return { ok: false, error: 'Answer at least half the questions so I can build it properly.' };
+  if (clean.filter(x => x.a).length < Math.ceil(questionsFor(key).length / 2)) return { ok: false, error: 'Answer at least half the questions so I can build it properly.' };
   await db('sections?on_conflict=key', { method: 'POST', prefer: 'resolution=merge-duplicates', body: { key, status: 'building', answers: clean, step: 0, attempts: 0, last_error: null, config: null, build_started_at: now(), updated_at: now() } });
   const fresh = await getSection(key);
   try { await advance(fresh); } catch (e) {}
@@ -248,7 +270,7 @@ const answersText = s => (s.answers || []).filter(x => x.a).map((x, i) => `Q${i 
 
 function fallbackConfig(s) {
   const d = DEFAULTS[s.key], first = (s.answers || []).find(x => x.a);
-  return { headline: META[s.key].name + ' · built around your answers', summary: first ? clip('You told me: "' + first.a + '". We start from there and build steadily.', 400) : "We start from where you are and build steadily.",
+  return { headline: nm(s.key) + ' · built around your answers', summary: first ? clip('You told me: "' + first.a + '". We start from there and build steadily.', 400) : "We start from where you are and build steadily.",
     goals: (s.answers || []).filter(x => x.a).slice(1, 3).map(x => ({ title: clip(x.a, 120), target: '', by: '' })), metrics: d.metrics, coaching_plan: [{ phase: 'Weeks 1-2', focus: 'Build the habit of dropping things in here' }, { phase: 'Weeks 3-4', focus: 'Spot the first patterns together' }, { phase: 'Month 2', focus: 'Tighten the one thing that moves the needle most' }],
     tone: 'warm, direct, encouraging', look_for: d.look_for, prompts: d.prompts, nudge_rules: ['At most one gentle question a day, only when relevant'], welcome: "Your space is ready. Drop something in whenever you like, and I'll take it from there.", facts: [] };
 }
@@ -257,18 +279,18 @@ async function runStep(s, n, fallback = false) {
   const brief = sectionBrief(s.key);
   if (n === 0) {
     if (fallback) return { config: fallbackConfig(s) };
-    const cfg = await gen([{ text: `You are FREYA, Eesah's personal AI companion (a calm, warm, sharp British-English assistant, like FRIDAY to Tony Stark). He just answered the onboarding questions for his "${META[s.key].name}" section. Design his personalised section.\nSECTION: ${brief}\n\nHIS ANSWERS:\n${answersText(s)}\n\nCONTEXT ABOUT HIM (use lightly, never recite): ${await profileText()}\n\nRules: be specific to his answers (numbers, dates, words he used). Metrics must be things that can actually be logged or read from uploads. Keep everything short. Islamic values matter to him; be respectful. Never shame.` }], CONFIG_SCHEMA, { models: ['gemini-flash-lite-latest', 'gemini-flash-latest'] });
+    const cfg = await gen([{ text: `You are FREYA, Eesah's personal AI companion (a calm, warm, sharp British-English assistant, like FRIDAY to Tony Stark). He just answered the onboarding questions for his "${nm(s.key)}" section. Design his personalised section.\nSECTION: ${brief}\n\nHIS ANSWERS:\n${answersText(s)}\n\nCONTEXT ABOUT HIM (use lightly, never recite): ${await profileText()}\n\nRules: be specific to his answers (numbers, dates, words he used). Metrics must be things that can actually be logged or read from uploads. Keep everything short. Islamic values matter to him; be respectful. Never shame.` }], CONFIG_SCHEMA, { models: ['gemini-flash-lite-latest', 'gemini-flash-latest'] });
     return { config: { ...fallbackConfig(s), ...cfg } };
   }
   const cfg = s.config || fallbackConfig(s);
   if (n === 1) {
     if (fallback) return {};
-    const better = await gen([{ text: `You are reviewing a coaching configuration for Eesah's "${META[s.key].name}" section before it goes live. Make it sharper: goals measurable where possible, 2-5 metrics with clear units (keep keys snake_case and stable if already good), "look_for" concrete, and prompts in a warm British voice. Remove anything generic. Return the same structure.\nSECTION: ${brief}\nHIS ANSWERS:\n${answersText(s)}\nDRAFT:\n${JSON.stringify(cfg)}` }], CONFIG_SCHEMA, { models: ['gemini-flash-latest', 'gemini-flash-lite-latest'], timeout: 25000 });
+    const better = await gen([{ text: `You are reviewing a coaching configuration for Eesah's "${nm(s.key)}" section before it goes live. Make it sharper: goals measurable where possible, 2-5 metrics with clear units (keep keys snake_case and stable if already good), "look_for" concrete, and prompts in a warm British voice. Remove anything generic. Return the same structure.\nSECTION: ${brief}\nHIS ANSWERS:\n${answersText(s)}\nDRAFT:\n${JSON.stringify(cfg)}` }], CONFIG_SCHEMA, { models: ['gemini-flash-latest', 'gemini-flash-lite-latest'], timeout: 25000 });
     return { config: { ...cfg, ...better, metrics: (better.metrics && better.metrics.length ? better.metrics : cfg.metrics).slice(0, 5) } };
   }
   if (n === 2) {
     if (fallback) return {};
-    const plan = await gen([{ text: `Write the opening of Eesah's "${META[s.key].name}" space as FREYA. Return: a refined 3-4 phase coaching plan, 5-7 short daily prompts he will see (rotating), ONE first insight for his feed (a single encouraging, specific observation from his answers; no question in it), and ONE first question that follows the QUESTION RULES. No lists of what you know about him.\n${Q_RULES}\nHIS ANSWERS:\n${answersText(s)}\nCONFIG:\n${JSON.stringify({ goals: cfg.goals, metrics: cfg.metrics, tone: cfg.tone })}` }],
+    const plan = await gen([{ text: `Write the opening of Eesah's "${nm(s.key)}" space as FREYA. Return: a refined 3-4 phase coaching plan, 5-7 short daily prompts he will see (rotating), ONE first insight for his feed (a single encouraging, specific observation from his answers; no question in it), and ONE first question that follows the QUESTION RULES. No lists of what you know about him.\n${Q_RULES}\nHIS ANSWERS:\n${answersText(s)}\nCONFIG:\n${JSON.stringify({ goals: cfg.goals, metrics: cfg.metrics, tone: cfg.tone })}` }],
       OBJ({ coaching_plan: CONFIG_SCHEMA.properties.coaching_plan, prompts: CONFIG_SCHEMA.properties.prompts, first_insight: S('one or two sentences, an observation, no question'), first_question: S('one question per the QUESTION RULES, or ""') }), { models: ['gemini-flash-lite-latest', 'gemini-flash-latest'] });
     if (plan.first_insight) await db('section_insights', { method: 'POST', body: { section: s.key, kind: 'insight', text: clip(plan.first_insight, 600) } });
     if (plan.first_question) await addQuestion(s.key, plan.first_question).catch(() => {});
@@ -290,7 +312,7 @@ async function runStep(s, n, fallback = false) {
 
 async function onReady(s) {
   const { sendPush } = require('./_life');
-  await sendPush({ title: `Your ${META[s.key].name} space is ready`, body: 'I built it around your answers. Tap to step in.', priority: 'high', url: '/?section=' + s.key, tag: 'section-' + s.key }).catch(() => {});
+  await sendPush({ title: `Your ${nm(s.key)} space is ready`, body: 'I built it around your answers. Tap to step in.', priority: 'high', url: '/?section=' + s.key, tag: 'section-' + s.key }).catch(() => {});
 }
 
 // ---------------- Uploads ----------------
@@ -312,9 +334,10 @@ async function uploadUrl(b) {
   if (!MIMES[kind].includes(mime)) return { ok: false, error: 'That file type is not supported here.' };
   const bytes = +b.bytes || 0; if (bytes > 10 * 1024 * 1024) return { ok: false, error: 'Too big. Max 10 MB after compression.' };
   const id = crypto.randomUUID();
-  const raw = `${key}/raw/${id}.${ext(mime)}`;
+  const pre = storagePrefix(); // '' for the owner (paths unchanged), 'u/<uid>/' for everyone else
+  const raw = `${pre}${key}/raw/${id}.${ext(mime)}`;
   const keepThumb = key === 'body' && (kind === 'photo' || kind === 'video') && !(s.settings && s.settings.thumbs === false) && b.thumb;
-  const thumb = keepThumb ? `${key}/thumbs/${id}.jpg` : null;
+  const thumb = keepThumb ? `${pre}${key}/thumbs/${id}.jpg` : null;
   await db('section_items', { method: 'POST', body: { id, section: key, kind, name: clip(b.name, 120) || null, mime, bytes, raw_path: raw, thumb_path: thumb, status: 'uploading', raw_expires_at: new Date(Date.now() + RAW_HOURS * 36e5).toISOString() } });
   return { ok: true, id, upload: await signUpload(raw), thumb_upload: thumb ? await signUpload(thumb) : null };
 }
@@ -365,7 +388,7 @@ async function analyse(id) {
     const privacy = it.section === 'connections'
       ? 'PRIVACY: lines marked ME are his; THEM are the other person. Coach HIS side and the conversation flow (pace, balance, who leads). Do not summarise, store or repeat the other person\'s personal details, names, numbers or private content. Refer to them only as "they".'
       : 'Never store names, numbers or private details of other people.';
-    parts.push({ text: `You are FREYA, Eesah's personal AI coach, analysing one thing he dropped into his "${META[it.section].name}" space.\nSECTION: ${sectionBrief(it.section)}\nHIS GOALS: ${JSON.stringify(c.goals || [])}\nMETRICS (use these keys only): ${JSON.stringify((c.metrics || []).map(m => ({ key: m.key, label: m.label, unit: m.unit })))}\nLOOK FOR: ${(c.look_for || []).join('; ')}\nTONE: ${c.tone || 'warm, direct'}\nRECENT INSIGHTS (avoid repeating): ${recent}\n${Q_RULES}\nALREADY ASKED: ${asked}\n${extra}\n${privacy}\nItem kind: ${it.kind}${it.kind === 'video' ? ' (6 keyframes from a video, left to right, top to bottom)' : ''}. Name: ${it.name || ''}. Be specific and kind; never shame. British English.` });
+    parts.push({ text: `You are FREYA, Eesah's personal AI coach, analysing one thing he dropped into his "${nm(it.section)}" space.\nSECTION: ${sectionBrief(it.section)}\nHIS GOALS: ${JSON.stringify(c.goals || [])}\nMETRICS (use these keys only): ${JSON.stringify((c.metrics || []).map(m => ({ key: m.key, label: m.label, unit: m.unit })))}\nLOOK FOR: ${(c.look_for || []).join('; ')}\nTONE: ${c.tone || 'warm, direct'}\nRECENT INSIGHTS (avoid repeating): ${recent}\n${Q_RULES}\nALREADY ASKED: ${asked}\n${extra}\n${privacy}\nItem kind: ${it.kind}${it.kind === 'video' ? ' (6 keyframes from a video, left to right, top to bottom)' : ''}. Name: ${it.name || ''}. Be specific and kind; never shame. British English.` });
     if (it.raw_text) parts.push({ text: '\nITEM TEXT:\n' + it.raw_text.slice(-60000) });
     else if (it.raw_path) {
       const r = await storage(`object/${BUCKET}/${it.raw_path}`);
@@ -480,8 +503,8 @@ async function ask(b) {
     prayerNote = `\nPRAYER LOG RESULT (just happened, tell him plainly in your first sentence): ${prayer.say || (prayer.ok ? 'logged' : 'not logged')}${prayer.ok ? '' : ' Prayers are only logged with proof: a photo of him at the masjid (upload it here) or praying in front of you with Pray with Freya.'}`;
   }
   const hist = (Array.isArray(b.history) ? b.history : []).slice(-6).map(h => `${h.who === 'me' ? 'Eesah' : 'FREYA'}: ${clip(h.text, 400)}`).join('\n');
-  const text = await gen([{ text: `You are FREYA, Eesah's calm, warm, sharp AI companion. Answer his question about his "${META[key].name}" space in 1-4 short sentences, British English, specific, no lists unless asked, never recite everything you know.\nSECTION CONFIG: ${JSON.stringify({ headline: c.headline, goals: c.goals, metrics: c.metrics, coaching_plan: c.coaching_plan, tone: c.tone })}\nMETRICS (newest first): ${JSON.stringify(mets)}\nINSIGHTS: ${ins.map(i => `[${i.created_at.slice(0, 10)} ${i.kind}] ${i.text}`).join(' | ')}\nITEMS: ${items.map(i => `[${i.created_at.slice(0, 10)} ${i.kind}] ${i.analysis && i.analysis.title}: ${i.analysis && i.analysis.summary} ${(i.analysis && i.analysis.dates || []).map(d => d.what + ' ' + d.date).join(', ')}`).join(' | ')}\n${hist ? 'CONVERSATION SO FAR:\n' + hist + '\n' : ''}${prayerNote}\nQUESTION: ${q}` }], null, { temperature: 0.5 });
-  saveTurns(key, [['user', `(in ${META[key].name}) ${q}`], ['freya', text]], 'ask' + Date.now().toString(36)).catch(() => {});
+  const text = await gen([{ text: `You are FREYA, Eesah's calm, warm, sharp AI companion. Answer his question about his "${nm(key)}" space in 1-4 short sentences, British English, specific, no lists unless asked, never recite everything you know.\nSECTION CONFIG: ${JSON.stringify({ headline: c.headline, goals: c.goals, metrics: c.metrics, coaching_plan: c.coaching_plan, tone: c.tone })}\nMETRICS (newest first): ${JSON.stringify(mets)}\nINSIGHTS: ${ins.map(i => `[${i.created_at.slice(0, 10)} ${i.kind}] ${i.text}`).join(' | ')}\nITEMS: ${items.map(i => `[${i.created_at.slice(0, 10)} ${i.kind}] ${i.analysis && i.analysis.title}: ${i.analysis && i.analysis.summary} ${(i.analysis && i.analysis.dates || []).map(d => d.what + ' ' + d.date).join(', ')}`).join(' | ')}\n${hist ? 'CONVERSATION SO FAR:\n' + hist + '\n' : ''}${prayerNote}\nQUESTION: ${q}` }], null, { temperature: 0.5 });
+  saveTurns(key, [['user', `(in ${nm(key)}) ${q}`], ['freya', text]], 'ask' + Date.now().toString(36)).catch(() => {});
   return { ok: true, text, prayer };
 }
 
@@ -535,7 +558,7 @@ async function weekly(claim) {
     if (!(await claim(`section:review:${s.key}:${new Date().toISOString().slice(0, 10)}`))) continue;
     try {
       const mets = await db(`section_metrics?select=key,value,at&section=eq.${s.key}&at=gte.${new Date(Date.now() - 14 * 864e5).toISOString()}&order=at.asc`);
-      const t = await gen([{ text: `You are FREYA. Write Eesah's weekly review for his "${META[s.key].name}" space as JSON: "review" is 2-3 sentences with the clearest trend and one win (no question); "question" is ONE question for the week ahead that follows the QUESTION RULES, or "". Goals: ${JSON.stringify((s.config || {}).goals || [])}. This week's insights: ${ins.map(i => i.text).join(' | ')}. Metrics (14 days): ${JSON.stringify(mets)}\n${Q_RULES}\nALREADY ASKED: ${(await askedTexts(s.key)).join(' | ') || '(none)'}` }], OBJ({ review: S('2-3 sentences'), question: S('one question or ""') }), { models: ['gemini-flash-lite-latest', 'gemini-flash-latest'], temperature: 0.5 });
+      const t = await gen([{ text: `You are FREYA. Write Eesah's weekly review for his "${nm(s.key)}" space as JSON: "review" is 2-3 sentences with the clearest trend and one win (no question); "question" is ONE question for the week ahead that follows the QUESTION RULES, or "". Goals: ${JSON.stringify((s.config || {}).goals || [])}. This week's insights: ${ins.map(i => i.text).join(' | ')}. Metrics (14 days): ${JSON.stringify(mets)}\n${Q_RULES}\nALREADY ASKED: ${(await askedTexts(s.key)).join(' | ') || '(none)'}` }], OBJ({ review: S('2-3 sentences'), question: S('one question or ""') }), { models: ['gemini-flash-lite-latest', 'gemini-flash-latest'], temperature: 0.5 });
       await db('section_insights', { method: 'POST', body: { section: s.key, kind: 'review', text: clip(t.review || '', 800) } }); out.push(s.key);
       if (t.question) await addQuestion(s.key, t.question).catch(() => {});
     } catch (e) {}
@@ -566,11 +589,11 @@ async function context() {
   const day = t => new Date(t).toLocaleDateString('en-GB', { timeZone: 'Europe/London', day: 'numeric', month: 'short' });
   return ORDER.map(k => {
     const s = all.find(x => x.key === k); if (!s) return null;
-    if (s.status !== 'ready') return { key: k, name: META[k].name, status: s.status };
+    if (s.status !== 'ready') return { key: k, name: nm(k), status: s.status };
     const c = s.config || {}, mine = ins.filter(i => i.section === k), latest = {};
     for (const m of mets.filter(m => m.section === k)) if (!latest[m.key]) latest[m.key] = `${+(+m.value).toFixed(1)}${m.unit ? ' ' + m.unit : ''} (${day(m.at)})`;
     return {
-      key: k, name: META[k].name, status: 'ready', headline: c.headline, goals: (c.goals || []).map(g => g.title + (g.target ? ' → ' + g.target : '') + (g.by ? ' by ' + g.by : '')).slice(0, 4),
+      key: k, name: nm(k), status: 'ready', headline: c.headline, goals: (c.goals || []).map(g => g.title + (g.target ? ' → ' + g.target : '') + (g.by ? ' by ' + g.by : '')).slice(0, 4),
       plan: (c.coaching_plan || [])[0] ? `${c.coaching_plan[0].phase}: ${c.coaching_plan[0].focus}` : null,
       metrics: Object.entries(latest).map(([key, v]) => `${((c.metrics || []).find(m => m.key === key) || {}).label || key} ${v}`),
       uploads: items.filter(i => i.section === k).slice(0, 6).map(i => i.status === 'analysed' && i.analysis ? `${day(i.created_at)} ${i.kind}${i.thumb_path ? ' (photo kept)' : ''}: ${i.analysis.title || ''}. ${i.analysis.summary || ''}${(i.analysis.insights || [])[0] ? ' Your take: ' + i.analysis.insights[0] : ''}` : `${day(i.created_at)} ${i.kind}: still being analysed`),
@@ -659,7 +682,7 @@ async function answer(b) {
   const [mets, ins] = await Promise.all([db(`section_metrics?select=key,value,unit,at&section=eq.${key}&order=at.desc&limit=12`), db(`section_insights?select=text&section=eq.${key}&kind=neq.question&order=created_at.desc&limit=6`)]);
   let r;
   try {
-    r = await gen([{ text: `You are FREYA, Eesah's calm, warm, sharp AI coach, in his "${META[key].name}" space. You asked him a question and he answered. React briefly and learn from it.\nSECTION: ${sectionBrief(key)}\nGOALS: ${JSON.stringify(c.goals || [])}\nMETRICS (use these keys only): ${JSON.stringify((c.metrics || []).map(m => ({ key: m.key, label: m.label, unit: m.unit })))}\nRECENT METRICS: ${JSON.stringify(mets)}\nRECENT INSIGHTS: ${ins.map(i => i.text).join(' | ')}\n${Q_RULES}\nALREADY ASKED: ${(await askedTexts(key)).join(' | ')}\nYOUR QUESTION: ${q.text}\nHIS ANSWER: ${ans}` }], ANSWER_SCHEMA, { models: ['gemini-flash-lite-latest', 'gemini-flash-latest'], temperature: 0.4 });
+    r = await gen([{ text: `You are FREYA, Eesah's calm, warm, sharp AI coach, in his "${nm(key)}" space. You asked him a question and he answered. React briefly and learn from it.\nSECTION: ${sectionBrief(key)}\nGOALS: ${JSON.stringify(c.goals || [])}\nMETRICS (use these keys only): ${JSON.stringify((c.metrics || []).map(m => ({ key: m.key, label: m.label, unit: m.unit })))}\nRECENT METRICS: ${JSON.stringify(mets)}\nRECENT INSIGHTS: ${ins.map(i => i.text).join(' | ')}\n${Q_RULES}\nALREADY ASKED: ${(await askedTexts(key)).join(' | ')}\nYOUR QUESTION: ${q.text}\nHIS ANSWER: ${ans}` }], ANSWER_SCHEMA, { models: ['gemini-flash-lite-latest', 'gemini-flash-latest'], temperature: 0.4 });
   } catch (e) { r = { reply: 'Got it, noted. I’ll factor that in.', metrics: [], facts: [], follow_up: '' }; }
   const logged = [];
   for (const m of (r.metrics || []).slice(0, 4)) {
@@ -690,7 +713,7 @@ async function reviewQuestions(claim) {
     if (claim && !(await claim(`secq:review:v1:${s.key}`).catch(() => false))) continue;
     let plan = [];
     try {
-      plan = (await gen([{ text: `You are FREYA reviewing questions you previously asked Eesah in his "${META[s.key].name}" space, which he could not answer yet. For each, decide: "keep" if it already follows the rules, "rewrite" into one sharp question that follows the rules (put it in "text"), or "retire" if it's fluffy, vague or not worth asking. Keep at most ${QCAP} in total.\n${Q_RULES}\nGOALS: ${JSON.stringify((s.config || {}).goals || [])}\nQUESTIONS:\n${legacy.map(q => `${q.id}: ${q.text}`).join('\n')}` }], { type: 'OBJECT', properties: { items: ARR(OBJ({ id: S('question id'), action: { type: 'STRING', enum: ['keep', 'rewrite', 'retire'] }, text: S('rewritten question, or ""') }), 'one per question') }, required: ['items'] }, { models: ['gemini-flash-lite-latest', 'gemini-flash-latest'], temperature: 0.3 })).items || [];
+      plan = (await gen([{ text: `You are FREYA reviewing questions you previously asked Eesah in his "${nm(s.key)}" space, which he could not answer yet. For each, decide: "keep" if it already follows the rules, "rewrite" into one sharp question that follows the rules (put it in "text"), or "retire" if it's fluffy, vague or not worth asking. Keep at most ${QCAP} in total.\n${Q_RULES}\nGOALS: ${JSON.stringify((s.config || {}).goals || [])}\nQUESTIONS:\n${legacy.map(q => `${q.id}: ${q.text}`).join('\n')}` }], { type: 'OBJECT', properties: { items: ARR(OBJ({ id: S('question id'), action: { type: 'STRING', enum: ['keep', 'rewrite', 'retire'] }, text: S('rewritten question, or ""') }), 'one per question') }, required: ['items'] }, { models: ['gemini-flash-lite-latest', 'gemini-flash-latest'], temperature: 0.3 })).items || [];
     } catch (e) { plan = null; }
     if (!Array.isArray(plan) || !plan.length) { out.push(s.key + ':skipped'); continue; } // never retire his questions on a model failure
     let kept = 0;

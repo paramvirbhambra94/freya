@@ -1,6 +1,8 @@
+const { withUser } = require('./_auth');
 // Called every 5 minutes by Supabase pg_cron (pg_net) with a shared secret. Sends prayer nudges, check-ins and the morning brief.
 const crypto = require('crypto');
-const { db, configured, getSecret } = require('./_db');
+const { db, configured, getSecret, runAs, ownerCtx, OWNER_ID } = require('./_db');
+const { firstName } = require('./_auth');
 const { lifeState, sendPush, DONE } = require('./_life');
 const { toMin, NAMES } = require('./_prayer');
 const G = require('./_google');
@@ -46,15 +48,25 @@ async function afterMeetings(s) {
   return done;
 }
 
-module.exports = async (req, res) => {
+module.exports = withUser(async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   if (!configured()) return res.status(503).json({ error: 'not configured' });
   const given = String(req.headers['x-cron-secret'] || '');
   const want = await getSecret('cron_secret');
   if (given.length !== want.length || !crypto.timingSafeEqual(Buffer.from(given), Buffer.from(want))) return res.status(401).json({ error: 'locked' });
+  // Multi-user: everything below runs as the owner (unchanged behaviour). Invited users only get the parts that are
+  // theirs: growth-section builds and conversation-memory digests, each run strictly inside that user's own context.
+  const testers = (await db('app_users?select=id,name,role,status&status=eq.active&role=neq.owner').catch(() => [])).filter(u => u.id !== OWNER_ID);
+  const forTesters = async (fn) => { const r = {}; for (const u of testers) { try { r[u.id.slice(0, 8)] = await runAs({ uid: u.id, owner: false, role: u.role, name: u.name, first: firstName(u.name) }, fn); } catch (e) { r[u.id.slice(0, 8)] = 'error'; } } return r; };
+  if (req.query && req.query.only === 'sections') { const others = await forTesters(() => SEC.tick(claim)); return runAs(ownerCtx(), () => ownerRun(req, res, others)); }
+  if (!(req.query && req.query.only)) { const others = await forTesters(async () => ({ sections: await SEC.tick(claim).catch(() => 'error'), convo: await CV.digest({ limit: 1 }).then(() => 'ok').catch(() => 'error') })); res.freyaTesters = others; }
+  return runAs(ownerCtx(), () => ownerRun(req, res));
+});
+
+async function ownerRun(req, res, othersSections) {
   const out = [];
   // Every-minute poke while a growth section is building (pg_cron job freya-sections-build): sections only.
-  if (req.query && req.query.only === 'sections') { try { return res.status(200).json({ ok: true, sections: await SEC.tick(claim) }); } catch (e) { return res.status(500).json({ error: 'sections failed' }); } }
+  if (req.query && req.query.only === 'sections') { try { return res.status(200).json({ ok: true, sections: await SEC.tick(claim), testers: othersSections }); } catch (e) { return res.status(500).json({ error: 'sections failed' }); } }
   // Connect-speed probe (no data returned): how long building her session context takes, phase by phase.
   if (req.query && req.query.only === 'timing') { const T = {}, t0 = Date.now(); const tk = require('./token'); const ctx = await tk.loadContext(T); T.total = Date.now() - t0; const t1 = Date.now(); const p = tk.persona({ ...ctx, mode: 'companion' }); T.persona_ms = Date.now() - t1; T.persona_chars = p.length; T.region = process.env.VERCEL_REGION || null; return res.status(200).json({ ok: true, timing: T }); }
   if (req.query && req.query.only === 'convo') { try { return res.status(200).json({ ok: true, convo: await CV.digest({ limit: 2, quietMin: +req.query.quiet >= 0 ? +req.query.quiet : 10 }) }); } catch (e) { return res.status(500).json({ error: 'convo failed' }); } }
@@ -140,6 +152,6 @@ module.exports = async (req, res) => {
         }
       } catch (e) { out.push('money_alerts_failed'); }
     }
-    return res.status(200).json({ ok: true, sent: out, sections, convo, google: meet, money, learn: learn && (learn.error || learn.skipped || 'ok') });
+    return res.status(200).json({ ok: true, sent: out, sections, convo, google: meet, money, learn: learn && (learn.error || learn.skipped || 'ok'), testers: res.freyaTesters });
   } catch (e) { return res.status(500).json({ error: 'cron failed' }); }
-};
+}

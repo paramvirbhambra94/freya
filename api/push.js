@@ -1,9 +1,9 @@
 // Web Push subscription management.
 const { readBody, db } = require('./_db');
-const { requireAuth } = require('./_auth');
+const { requireAuth, withUser } = require('./_auth');
 const { vapid, sendPush } = require('./_life');
 
-module.exports = async (req, res) => {
+module.exports = withUser(async (req, res) => {
   if (!(await requireAuth(req, res))) return;
   try {
     if (req.method === 'GET') return res.status(200).json({ publicKey: (await vapid()).publicKey });
@@ -14,5 +14,5 @@ module.exports = async (req, res) => {
     }
     if (b.action === 'test') return res.status(200).json({ sent: await sendPush({ title: 'F.R.E.Y.A.', body: "Notifications are on. I'll only interrupt when it matters.", priority: 'low', tag: 'test' }) });
     return res.status(400).json({ error: 'Unknown action' });
-  } catch (e) { return res.status(502).json({ error: 'Push error' }); }
-};
+  } catch (e) { if (process.env.FREYA_DEBUG) console.error('[dbg]', e.message); return res.status(502).json({ error: 'Push error' }); }
+});

@@ -2,7 +2,10 @@
 // Deny by default. Every consequential action is a ledger row bound to its exact parameters (hash), expires,
 // can be approved once (conditional status transition prevents replay) and records what happened.
 const crypto = require('crypto');
-const { db, getProfile } = require('./_db');
+const { db, getProfile, isOwner } = require('./_db');
+// Gmail is the owner's own Google connection: other accounts cannot draft or send through it.
+const OWNER_ONLY = new Set(['email_send', 'email_draft']);
+const policyFor = kind => !isOwner() && OWNER_ONLY.has(kind) && POLICY[kind] ? { ...POLICY[kind], authority: 'blocked', reason: 'Email is not available on this account yet (it needs a Google connection).' } : POLICY[kind];
 
 // kind -> policy. 'never' = refused outright; 'approval' = needs his explicit tap for this exact action;
 // 'routine' = Freya may do it herself (low risk, inside the app); 'blocked' = needs native capability not built yet.
@@ -47,7 +50,7 @@ async function authorityOverrides() { // future: delegated scopes he configures.
 
 // Propose: classify, record. Never executes anything.
 async function propose({ kind, params, why }) {
-  const pol = POLICY[kind];
+  const pol = policyFor(kind);
   if (!pol) return { ok: false, status: 'denied', error: 'Unknown action. Denied by default.' };
   if (pol.authority === 'never' || pol.authority === 'blocked') {
     await db('neuro_actions', { method: 'POST', body: { kind, params: {}, params_hash: hash(kind, {}), why: String(why || '').slice(0, 300), risk: pol.risk, authority: pol.authority, status: 'denied', decided_at: new Date().toISOString(), result: { reason: pol.reason } } }).catch(() => {});
@@ -65,7 +68,7 @@ async function list({ status, limit = 30 } = {}) {
   await db(`neuro_actions?status=eq.pending&expires_at=lt.${new Date().toISOString()}`, { method: 'PATCH', body: { status: 'expired' } }).catch(() => {});
   const q = status ? `&status=eq.${encodeURIComponent(status)}` : '';
   const rows = await db(`neuro_actions?select=id,kind,params,params_hash,why,risk,authority,status,result,created_at,expires_at,decided_at,executed_at&order=created_at.desc&limit=${Math.min(100, +limit || 30)}${q}`);
-  return { actions: rows.map(r => ({ ...r, label: (POLICY[r.kind] || {}).label || r.kind })), policy: Object.fromEntries(Object.entries(POLICY).map(([k, v]) => [k, { authority: v.authority, risk: v.risk, label: v.label, reason: v.reason }])) };
+  return { actions: rows.map(r => ({ ...r, label: (POLICY[r.kind] || {}).label || r.kind })), policy: Object.fromEntries(Object.keys(POLICY).map(k => [k, policyFor(k)]).map(([k, v]) => [k, { authority: v.authority, risk: v.risk, label: v.label, reason: v.reason }])) };
 }
 
 async function claim(id, from, to, extra = {}) {
@@ -99,7 +102,7 @@ async function approve(id, h, exec = executor) {
 
 // Routine actions she may do herself (still ledgered).
 async function routine(kind, params, why, exec = executor) {
-  const pol = POLICY[kind];
+  const pol = policyFor(kind);
   if (!pol || pol.authority !== 'routine') return propose({ kind, params, why });
   const p = clean(kind, params), h = hash(kind, p);
   const rows = await db('neuro_actions', { method: 'POST', prefer: 'return=representation', body: { kind, params: p, params_hash: h, why: String(why || '').slice(0, 300), risk: pol.risk, authority: 'routine', status: 'approved', decided_at: new Date().toISOString() } });
@@ -109,6 +112,7 @@ async function routine(kind, params, why, exec = executor) {
 }
 
 async function executor(kind, p) {
+  if (OWNER_ONLY.has(kind) && !isOwner()) throw new Error('Not available on this account.');
   if (kind === 'email_draft' || kind === 'email_send') {
     const G = require('./_google');
     const d = await G.createDraft(p);

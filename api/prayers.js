@@ -1,9 +1,9 @@
 // Prayer schedule and mosque management (search, switch, travelling).
 const { readBody, setProfile, db } = require('./_db');
-const { requireAuth } = require('./_auth');
+const { requireAuth, withUser } = require('./_auth');
 const { getSchedule, searchMosques, fetchConf } = require('./_prayer');
 
-module.exports = async (req, res) => {
+module.exports = withUser(async (req, res) => {
   if (!(await requireAuth(req, res))) return;
   try {
     if (req.method === 'GET') return res.status(200).json(await getSchedule());
@@ -25,4 +25,4 @@ module.exports = async (req, res) => {
       default: return res.status(400).json({ error: 'Unknown action' });
     }
   } catch (e) { return res.status(502).json({ error: 'Prayer times unavailable right now' }); }
-};
+});

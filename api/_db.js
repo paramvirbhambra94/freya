@@ -4,8 +4,51 @@ const KEY = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE
 
 const configured = () => !!KEY;
 
+// ---------------- Multi-user isolation (RLS-style, enforced here because access is server-only) ----------------
+// Every request runs inside a user context (see _auth.withUser). Every read/write to a per-user table is scoped to
+// that user's id: filters are appended to GET/PATCH/DELETE, user_id is forced on POST rows, upsert conflict targets
+// are prefixed with user_id (so a clash with another user's row errors instead of overwriting it), and user_id can
+// never be changed by a PATCH. No context = refused (fail closed). Cron runs explicitly as the owner.
+const { AsyncLocalStorage } = require('async_hooks');
+const als = new AsyncLocalStorage();
+const OWNER_ID = 'e35a0000-0000-4000-8000-000000000001';
+const SCOPED = new Set(['profile', 'memories', 'onboarding_answers', 'pledges', 'emergency_contacts', 'habits', 'habit_logs',
+  'convo_sessions', 'convo_turns', 'sections', 'section_items', 'section_insights', 'section_metrics', 'push_subscriptions',
+  'notifications_sent', 'neuro_actions', 'neuro_futures', 'neuro_observations', 'neuro_priorities', 'neuro_sleep', 'voice_usage',
+  // owner-only integrations (also gated in code; scoped anyway)
+  'calendar_events', 'meeting_notes', 'bank_accounts', 'bank_transactions', 'balance_history', 'merchant_rules', 'money_patterns',
+  'money_predictions', 'day_signals', 'phone_days', 'phone_events']);
+const GLOBAL = new Set(['app_secrets', 'prayer_cache', 'app_users', 'invites', 'passkeys']);
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const current = () => als.getStore() || null;
+const runAs = (user, fn) => als.run(user, fn);
+const ownerCtx = () => ({ uid: OWNER_ID, owner: true, role: 'owner', name: 'Eesah', first: 'Eesah' });
+function uid() { const c = current(); if (!c || !c.uid || !UUID.test(c.uid)) throw Object.assign(new Error('no_user_context'), { status: 401 }); return c.uid; }
+const isOwner = () => { const c = current(); return !!(c && c.uid === OWNER_ID && c.owner); };
+function assertOwner(what) { if (!isOwner()) throw Object.assign(new Error('owner_only' + (what ? ':' + what : '')), { status: 403, ownerOnly: true }); }
+function scope(path, method, body, prefer) {
+  const qi = path.indexOf('?'), table = qi < 0 ? path : path.slice(0, qi);
+  if (GLOBAL.has(table)) return { path, body };
+  if (!SCOPED.has(table)) throw new Error('unscoped_table_' + table); // new tables must be classified
+  const id = uid();
+  let q = qi < 0 ? '' : path.slice(qi + 1);
+  if (method === 'POST') {
+    const rows = (Array.isArray(body) ? body : [body]).map(r => ({ ...r, user_id: id }));
+    body = Array.isArray(body) ? rows : rows[0];
+    const params = new URLSearchParams(q), oc = params.get('on_conflict');
+    if (oc) params.set('on_conflict', ['user_id'].concat(oc.split(',').filter(c => c && c !== 'user_id')).join(','));
+    else if (/resolution=/.test(prefer || '')) throw new Error('upsert_needs_on_conflict_' + table);
+    q = params.toString().replace(/%2C/g, ',');
+  } else {
+    if (method === 'PATCH' && body && typeof body === 'object') { body = { ...body }; delete body.user_id; }
+    q = (q ? q + '&' : '') + 'user_id=eq.' + id;
+  }
+  return { path: table + (q ? '?' + q : ''), body };
+}
+
 async function db(path, { method = 'GET', body, prefer } = {}) {
   if (!KEY) throw new Error('memory_not_configured');
+  ({ path, body } = scope(path, method, body, prefer));
   const headers = { apikey: KEY, 'content-type': 'application/json' };
   if (KEY.startsWith('eyJ')) headers.authorization = 'Bearer ' + KEY; // legacy service_role JWT
   if (prefer) headers.prefer = prefer;
@@ -18,6 +61,10 @@ async function db(path, { method = 'GET', body, prefer } = {}) {
 // Supabase Storage (private buckets) with the same server-only key.
 async function storage(path, { method = 'GET', body, json = true, headers: extra = {} } = {}) {
   if (!KEY) throw new Error('memory_not_configured');
+  // Isolation: object paths (and bulk sign/delete lists) must sit inside the caller's own prefix.
+  const m = String(path).match(/^object\/(?:upload\/sign\/|sign\/)?[\w-]+\/?(.*)$/);
+  const paths = [].concat(m && m[1] ? [decodeURIComponent(m[1])] : [], body && Array.isArray(body.prefixes) ? body.prefixes : [], body && Array.isArray(body.paths) ? body.paths : []);
+  if (paths.some(x => !storageAllowed(x))) throw Object.assign(new Error('storage_forbidden'), { status: 403 });
   const headers = { apikey: KEY, ...extra };
   if (KEY.startsWith('eyJ')) headers.authorization = 'Bearer ' + KEY;
   let payload = body;
@@ -27,6 +74,10 @@ async function storage(path, { method = 'GET', body, json = true, headers: extra
   return r;
 }
 const SUPABASE_URL = URL_;
+
+// Storage objects for non-owner users live under u/<uid>/ (the owner's existing paths are unchanged).
+function storagePrefix() { return isOwner() ? '' : 'u/' + uid() + '/'; }
+function storageAllowed(p) { const pre = storagePrefix(); return pre ? String(p || '').startsWith(pre) : !String(p || '').startsWith('u/'); }
 
 async function getProfile() {
   const rows = await db('profile?select=key,value');
@@ -62,4 +113,4 @@ function london(d = new Date()) {
   return { date: `${p.year}-${p.month}-${p.day}`, y: +p.year, m: +p.month, d: +p.day, hm: `${p.hour}:${p.minute}`, min: (+p.hour) * 60 + (+p.minute), weekday: p.weekday };
 }
 
-module.exports = { db, storage, SUPABASE_URL, configured, getProfile, setProfile, readBody, clip, getSecret, setSecret, london };
+module.exports = { als, OWNER_ID, current, runAs, ownerCtx, uid, isOwner, assertOwner, storagePrefix, storageAllowed, _scope: scope, db, storage, SUPABASE_URL, configured, getProfile, setProfile, readBody, clip, getSecret, setSecret, london };

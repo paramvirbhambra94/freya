@@ -122,7 +122,7 @@ async function logWithEvidence({ kind, prayer, images, upload_id } = {}) {
   const status = kind === 'masjid' ? (pick.onTime ? 'jamaah' : 'qada') : (pick.onTime ? 'prayed' : 'qada');
   const evidence = kind === 'masjid' ? 'masjid' : 'camera';
   await writeLog(h.id, pick.day, status, evidence, (kind === 'masjid' ? 'At the masjid: ' : 'On camera: ') + v.reason);
-  return { ok: true, verified: true, prayer: pick.prayer, day: pick.day, status, evidence, reason: v.reason, mosque: kind === 'masjid' ? (profile.mosque_name || MASJID) : null, say: kind === 'masjid' ? `${cap(pick.prayer)} logged, at the masjid.` : `${cap(pick.prayer)} logged, verified on camera.` };
+  return { ok: true, verified: true, prayer: pick.prayer, day: pick.day, status, evidence, reason: v.reason, mosque: kind === 'masjid' ? (profile.mosque_name || (require('./_db').isOwner() ? MASJID : 'the masjid')) : null, say: kind === 'masjid' ? `${cap(pick.prayer)} logged, at the masjid.` : `${cap(pick.prayer)} logged, verified on camera.` };
 }
 
 // Freya may record a missed prayer (no proof needed to admit one), only once its time has passed and it isn't already done.
@@ -131,6 +131,7 @@ async function markMissed(prayer) {
   const sc = await getSchedule(); const w = windows(sc).find(x => x.prayer === prayer);
   if (!w.started || w.open) return { ok: false, error: `${cap(prayer)}'s time hasn't finished yet, so it can't be marked missed.` };
   const logs = await prayerLogs(sc.now.date), h = logs.find(l => l.key === prayer);
+  if (!h) return { ok: false, error: 'Prayer tracking is off. Turn on Islamic Mode in Settings first.' };
   if (h.log && DONE.includes(h.log.status)) return { ok: false, error: `${cap(prayer)} is already logged as done.` };
   await writeLog(h.id, sc.now.date, 'missed', 'freya', 'Marked missed by Freya');
   return { ok: true, prayer, status: 'missed' };

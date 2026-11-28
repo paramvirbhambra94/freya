@@ -1,11 +1,11 @@
 // Money endpoints (read-only bank data). Everything needs the owner's passkey session.
 const { readBody, setProfile, configured } = require('../_db');
-const { requireAuth } = require('../_auth');
+const { requireOwner, withUser } = require('../_auth');
 const M = require('../_money');
 const PL = require('../_patterns');
 
-module.exports = async (req, res) => {
-  if (!(await requireAuth(req, res))) return;
+module.exports = withUser(async (req, res) => {
+  if (!(await requireOwner(req, res))) return;
   res.setHeader('Cache-Control', 'no-store');
   if (!configured()) return res.status(503).json({ error: 'not configured' });
   const action = req.query.action, b = req.method === 'POST' ? await readBody(req) : req.query;
@@ -48,4 +48,4 @@ module.exports = async (req, res) => {
     if (action === 'low') { const v = Math.max(0, +b.amount || 0); await setProfile('money_low_threshold', String(v)); return res.status(200).json({ ok: true, low_threshold: v }); }
     return res.status(404).json({ error: 'unknown action' });
   } catch (e) { return res.status(500).json({ error: 'money failed' }); }
-};
+});

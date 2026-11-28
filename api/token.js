@@ -1,5 +1,6 @@
-const { db, configured, getProfile, setProfile } = require('./_db');
-const { requireAuth } = require('./_auth');
+const { db, configured, getProfile, setProfile, isOwner, current, london } = require('./_db');
+const WHO = require('./_who');
+const { requireAuth, withUser } = require('./_auth');
 const { lifeState } = require('./_life');
 const G = require('./_google');
 const M = require('./_money');
@@ -21,6 +22,7 @@ YOUR EYES (camera and photos):
 - If what he shows fits one of his growth sections (meal, workout or physique: body; document, notes or work material: work; receipt, warranty or paperwork: vault; chat screenshot: connections; journal, Qur'an or prayer: mind), offer ONCE to save it there. Only if he says yes, call save_to_section.`;
 
 function persona(ctx = {}) {
+  if (!isOwner()) return WHO.personalize(personaGeneral(ctx)); // other accounts: their own data only, none of Eesah's context
   const now = new Date().toLocaleString('en-GB', { timeZone: 'Europe/London', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' });
   const mode = ctx.mode || 'companion';
   let p = `You are F.R.E.Y.A. (Functional Response Engine for Your Assistance), the personal AI companion of Paramvir Bhambra, who goes by Eesah. Think Jarvis or FRIDAY: always on his side, sharp, capable, quietly brilliant.
@@ -66,6 +68,57 @@ Let him lead. Invite him to speak freely about what matters today. Do not follow
 }
 
 
+// ---------------- Other accounts (invited testers): same Freya, their own life, none of Eesah's context ----------------
+const OWNER_TOOLS = new Set(['connect_google', 'get_calendar', 'find_free_time', 'create_event', 'update_event', 'confirm_pending', 'cancel_pending', 'search_email', 'summarise_unread', 'read_email', 'draft_email', 'search_drive', 'read_doc', 'save_debrief',
+  'get_balances', 'spending_summary', 'list_subscriptions', 'simulate', 'set_savings_goal', 'explain_patterns', 'note_pattern', 'show_money', 'phone_today', 'weekly_reflection', 'note_phone_pattern', 'set_alarm', 'list_alarms', 'cancel_alarm']);
+const DEEN_TOOLS = new Set(['get_prayer_times', 'log_prayer', 'start_salah_mode', 'salah_complete', 'find_mosques', 'set_mosque', 'set_travelling']);
+function toolAllowed(name, ctx) {
+  if (isOwner()) return true;
+  if (OWNER_TOOLS.has(name)) return false;
+  if (DEEN_TOOLS.has(name)) return require('./_neuro').islamicOn((ctx && ctx.profile) || {});
+  return true;
+}
+function personaGeneral(ctx = {}) {
+  const c = current() || {}, who = c.first || 'there', mode = ctx.mode || 'companion';
+  const now = new Date().toLocaleString('en-GB', { timeZone: 'Europe/London', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  const isl = require('./_neuro').islamicOn(ctx.profile || {});
+  let p = `You are F.R.E.Y.A. (Functional Response Engine for Your Assistance), the AI inside NEURO, a personal life operating system. You are the personal companion of ${c.name || who}; call them ${who}. Think Jarvis or FRIDAY: always on their side, sharp, capable, quietly brilliant.
+
+WHO YOU ARE: a companion for their WHOLE life: health and energy, money habits, people who matter, growth, habits and discipline, planning the day, work or studies${isl ? ', and their faith and prayers' : ''}. If asked who you are, answer in one or two sentences, whole-life, never work-first.
+
+THIS IS AN EARLY TESTER ACCOUNT of NEURO. You know nothing about ${who} beyond what is listed below and what they tell you. Never invent facts about them. Never mention any other user of NEURO, and never claim to know anyone else's life or data.
+
+HOW YOU SOUND: soft, low and unhurried, warm and calm. Short sentences, natural pauses. Dry wit, concise, like a person, not a brochure. No filler, no "How can I help you today?". Never sycophantic; if they're cutting corners, say so kindly.
+
+HOW YOU HELP: help them think, decide and act; never make them lazy. Ask one sharp question when it helps more than an answer. Keep replies short unless they ask for depth.
+
+MEMORY: when you learn something durable about ${who} (a fact, preference, goal, routine, person in their life), with permission call save_memory with a short, specific note. Ask before storing anything sensitive; respect requests not to retain it.
+
+WHAT YOU CAN DO HERE: habits and streaks, private mode, reminders through notifications if they turn them on, their growth spaces (Body, Connections, Mind, Work, Vault), futures for decisions, a personal trainer plan, speaking practice${isl ? ', prayer times (calculated for their location) and the salah tracker' : ''}. NOT available on this account: Google calendar/email/Drive, bank accounts, phone awareness, alarms, sending email. If asked, say in one line it isn't available on their account yet and offer what you can do.`;
+  if (ctx.profile && Object.keys(ctx.profile).length) {
+    const facts = Object.entries(ctx.profile).filter(([k]) => !['onboarding_status', 'onboarding_completed_at', 'life_plan', 'companion_days', 'last_companion_day', 'pattern_last_intro', 'private_until', 'travel_location', 'brief_time'].includes(k) && !/^(money_|google_|mosque_|convo_|neuro_|salah_mode|phone_)/.test(k)).map(([k, v]) => `- ${k}: ${String(v).slice(0, 400)}`);
+    if (facts.length) p += `\n\nWHAT YOU KNOW ABOUT ${who.toUpperCase()}:\n` + facts.join('\n');
+    if (ctx.profile.life_plan) p += `\n\nTHEIR LIFE PLAN FROM ONBOARDING (hold them to it, gently):\n` + ctx.profile.life_plan.slice(0, 6000);
+  }
+  if (ctx.answers && ctx.answers.length) p += '\n\nWHAT THEY TOLD YOU DURING ONBOARDING:\n' + ctx.answers.map(a => `- [${a.topic}] ${a.question ? a.question + ' -> ' : ''}${a.answer}`).join('\n').slice(0, 12000);
+  if (ctx.memories && ctx.memories.length) p += '\n\nRECENT MEMORIES (newest first):\n' + ctx.memories.map(m => `- [${m.category}] ${m.content}`).join('\n').slice(0, 8000);
+  const L = ctx.life;
+  if (L) {
+    const lines = [];
+    if (isl && L.schedule && L.schedule.today) { const t = L.schedule.today; lines.push('Prayer times today (calculated' + (L.schedule.travelling ? ' for where they are' : ' for their area; ask them to set their location if they are not in London') + '): ' + ['fajr', 'dhuhr', 'asr', 'maghrib', 'isha'].map(n => `${n[0].toUpperCase() + n.slice(1)} ${t.prayers[n].adhan}`).join('; ') + '.'); }
+    if (L.private && L.private.on) lines.push('PRIVATE MODE IS ON. Keep any reply to one short line.');
+    if (L.habits && L.habits.length) lines.push('Habits (today / streak / last 7 days): ' + L.habits.map(h => `${h.name}: ${h.today || 'not logged'} / ${h.streak} / ${h.last7}of7`).join('; ') + '.');
+    lines.push(`Notifications on their phone: ${ctx.pushOn ? 'on' : 'off'}.`);
+    const sx = mode === 'onboarding' ? null : ctx.sections;
+    if (sx && sx.length) lines.push('GROWTH SECTIONS: ' + sx.map(x => `${x.name}: ${x.status === 'ready' ? (x.headline || 'ready') + ((x.uploads || []).length ? ' · recent uploads: ' + x.uploads.slice(0, 4).join(' | ') : '') : x.status}`).join('; ').slice(0, 4000));
+    p += `\n\nTODAY (live data):\n- ${lines.join('\n- ')}\n\nRULES:\n- Habits: log with log_habit when they report one; when they commit to a new daily habit, call add_habit.\n- Private mode: "stand down" -> set_private_mode on=true and answer in two words; "I'm back" -> on=false.\n- If notifications are off, once at a natural moment offer to switch them on (enable_notifications).` + (isl ? `\n- Salah (Islamic Mode is on): prayers are only logged with proof, never on their word: they pray in front of you in salah mode (start_salah_mode; you are completely silent until it ends) or send a photo at the masjid (log_prayer evidence "photo"). If they missed one, log_prayer status "missed"; never guilt-trip. Use set_travelling with their location if their prayer times look wrong.` : '\n- Islamic Mode is OFF: do not bring religion into the conversation unless they do.');
+  }
+  if (ctx.convo && mode !== 'onboarding') p += CV.block(ctx.convo, ctx.cont);
+  if (mode !== 'onboarding') p += EYES + neuroBlock(ctx);
+  if (mode === 'onboarding') p += `\n\nYOU ARE NOW RUNNING THEIR ONBOARDING. You know almost nothing yet. Open warmly in one or two sentences: you'd like to get to know them so you can actually have their back. Let them lead; ask at most one follow-up at a time; accept skipped topics. Cover, if they're willing: what matters to them right now, their days and routine, health and energy, money habits, people, work or studies, goals for the next few months${isl ? ', and their faith and prayers' : ''}. Save confirmed durable answers with save_answer. Summarise now and then and invite corrections. Only call finish_onboarding when they ask for their plan and agree to review it; the pledge step follows (emergency contacts are optional for them). Messages beginning "(Cue:" are application cues, not their words.`;
+  return p + `\n\nCurrent UK date and time: ${now}.`;
+}
+
 // NEURO: owner-only, screen awareness, futures, approvals, modes, learning consent, Islamic Mode.
 function neuroBlock(ctx) {
   const N = require('./_neuro'), pr = ctx.profile || {}, md = N.modeOf(pr), L = N.learning(pr), isl = N.islamicOn(pr);
@@ -86,11 +139,11 @@ NEURO (you are the intelligence inside NEURO, his personal operating system):
 
 
 function guestPersona(g) {
-  return `You are Freya, the personal AI assistant of Eesah (Paramvir Bhambra). Eesah has allowed ${g.name} to talk with you for a few minutes. Be warm, helpful and concise on general topics (questions, ideas, a friendly chat). STRICT: you know nothing about Eesah's private life in this chat and must never reveal or guess anything about his schedule, money, health, messages, memories, location, family or work, and you take no actions. If asked, say that is Eesah's private information. Speak softly, short sentences. The guest chat ends at ${new Date(g.until).toLocaleTimeString('en-GB', { timeZone: 'Europe/London', hour: '2-digit', minute: '2-digit' })}.`;
+  return WHO.personalize(`You are Freya, the personal AI assistant of Eesah (Paramvir Bhambra). Eesah has allowed ${g.name} to talk with you for a few minutes. Be warm, helpful and concise on general topics (questions, ideas, a friendly chat). STRICT: you know nothing about Eesah's private life in this chat and must never reveal or guess anything about his schedule, money, health, messages, memories, location, family or work, and you take no actions. If asked, say that is Eesah's private information. Speak softly, short sentences. The guest chat ends at ${new Date(g.until).toLocaleTimeString('en-GB', { timeZone: 'Europe/London', hour: '2-digit', minute: '2-digit' })}.`);
 }
 function practicePersona(scenario) {
-  return `You are Freya running a SPEAKING PRACTICE session for Eesah (communication and speaking confidence coach). Scenario: ${scenario || 'he chooses; ask him in one line what conversation he wants to practise (e.g. a tough talk, a sales call, asking for a raise, setting a boundary)'}.
-How it works: play the other person realistically (not too easy), one turn at a time, natural and spoken. If he says "pause", "feedback" or "how did I do", step out of the role and give feedback: what landed, one or two specific flaws (hesitation, filler words, over-explaining, apologising, vagueness, rushing, defensiveness) with a better line he could have said, and one thing to try next round. Be honest and encouraging, never harsh. No diagnosis. Keep your role lines short.`;
+  return WHO.personalize(`You are Freya running a SPEAKING PRACTICE session for Eesah (communication and speaking confidence coach). Scenario: ${scenario || 'he chooses; ask him in one line what conversation he wants to practise (e.g. a tough talk, a sales call, asking for a raise, setting a boundary)'}.
+How it works: play the other person realistically (not too easy), one turn at a time, natural and spoken. If he says "pause", "feedback" or "how did I do", step out of the role and give feedback: what landed, one or two specific flaws (hesitation, filler words, over-explaining, apologising, vagueness, rushing, defensiveness) with a better line he could have said, and one thing to try next round. Be honest and encouraging, never harsh. No diagnosis. Keep your role lines short.`);
 }
 
 function lifeBlock(L, ctx) {
@@ -291,11 +344,14 @@ async function loadContext(T) {
   } catch (e) { return { memory: false }; }
 }
 
-module.exports = async (req, res) => {
+module.exports = withUser(async (req, res) => {
   if (!(await requireAuth(req, res))) return;
   if (req.method !== 'GET' && req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   const key = process.env.GEMINI_API_KEY;
   if (!key) return res.status(500).json({ error: 'Server key not configured' });
+  // Cost guard: daily voice allowance for invited accounts (the owner is unlimited).
+  const gate = await require('./_voice').gate().catch(() => ({ ok: isOwner(), error: 'Voice is unavailable right now. Try again in a minute.' }));
+  if (!gate.ok) return res.status(429).json({ error: gate.error, voice_cap: true });
   const ctx = await loadContext();
   const wanted = (req.query && req.query.mode) || '';
   const resume = req.query && typeof req.query.resume === 'string' && /^[\w-]{8,200}$/.test(req.query.resume) ? req.query.resume : null;
@@ -323,7 +379,7 @@ module.exports = async (req, res) => {
       if (ev) { const n = (await db(`meeting_notes?select=summary&event_id=eq.${encodeURIComponent(ev.id)}`).catch(() => []))[0]; ctx.debrief = { id: ev.id, summary: ev.summary, when: G.ukDay(ev.start_at) + ' ' + G.ukHM(ev.start_at), notes: n ? n.summary : null }; }
     }
   }
-  const decls = ctx.special ? [] : ctx.memory ? [TOOL_SAVE_MEMORY].concat(LIFE_TOOLS, ctx.mode === 'onboarding' ? [TOOL_SAVE_ANSWER, TOOL_FINISH] : []) : [];
+  const decls = (ctx.special ? [] : ctx.memory ? [TOOL_SAVE_MEMORY].concat(LIFE_TOOLS, ctx.mode === 'onboarding' ? [TOOL_SAVE_ANSWER, TOOL_FINISH] : []) : []).filter(t => toolAllowed(t.name, ctx)).map(t => isOwner() ? t : WHO.personalizeAll(t));
   const now = Date.now();
   try {
     const r = await fetch('https://generativelanguage.googleapis.com/v1beta/auth_tokens', {
@@ -359,7 +415,7 @@ module.exports = async (req, res) => {
   } catch (e) {
     return res.status(502).json({ error: 'Voice service unreachable' });
   }
-};
+});
 module.exports.persona = persona;
 module.exports.loadContext = loadContext;
 module.exports.LIFE_TOOLS = LIFE_TOOLS;
