@@ -182,6 +182,11 @@ async function createDraft({ to, subject, body, reply_to_id }) {
   return { draftId: d.id, to, subject, body, link: 'https://mail.google.com/mail/u/0/#drafts' };
 }
 
+// Sends an existing draft. Only called by the action ledger after he approved that exact email (gmail.compose scope).
+async function sendDraft(draftId) {
+  return g('https://gmail.googleapis.com/gmail/v1/users/me/drafts/send', { method: 'POST', body: JSON.stringify({ id: draftId }) });
+}
+
 // ---- Drive ----
 async function searchDrive(q, max = 8) {
   const esc = String(q || '').replace(/['\\]/g, ' ');
@@ -225,4 +230,4 @@ async function summariseNotes(title, text) {
   throw last;
 }
 
-module.exports = { REDIRECT, SCOPES, creds, authUrl, exchange, accessToken, disconnect, status, getCalendar, findFree, createEvent, updateEvent, syncCalendar, searchMail, importantUnread, readMail, createDraft, searchDrive, readFile, findMeetingNotes, summariseNotes, ukHM, ukDay, ukDate };
+module.exports = { REDIRECT, SCOPES, creds, authUrl, exchange, accessToken, disconnect, status, getCalendar, findFree, createEvent, updateEvent, syncCalendar, searchMail, importantUnread, readMail, createDraft, sendDraft, searchDrive, readFile, findMeetingNotes, summariseNotes, ukHM, ukDay, ukDate };

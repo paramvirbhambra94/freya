@@ -84,6 +84,8 @@ async function vapid() {
 async function sendPush({ title, body, priority = 'high', url = '/', tag }) {
   // Salah mode (he is praying in front of the camera): hold every notification until he's done.
   try { const rows = await db("profile?select=value&key=eq.salah_mode_until"); if (rows[0] && rows[0].value && new Date(rows[0].value) > new Date()) return 0; } catch (e) {}
+  // NEURO modes: Focus / Sleep / Standby (explicitly chosen by him) hold everything except critical alerts.
+  try { const rows = await db("profile?select=value&key=eq.neuro_mode"); const p = { neuro_mode: rows[0] && rows[0].value }; if (require('./_neuro').holdsPush(p, priority)) return 0; } catch (e) {}
   const { wp } = await vapid();
   const subs = await db('push_subscriptions?select=endpoint,sub');
   let sent = 0;

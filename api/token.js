@@ -43,7 +43,7 @@ MEMORY: When you learn something durable about Eesah (a fact, preference, goal, 
 LIMITS FOR NOW: you can see his prayer times, habits and streaks, and you can log prayers, set private mode and his brief time, and send him phone reminders. You can see his bank accounts read-only (balances, spending, bills, simulations); you can never move money or make payments. If he has switched on phone awareness, you can see summaries of his phone time, steps and notification counts (never message content). If he asks for something you can't do yet, say so in one line and offer what you can do. Be respectful of his faith.`;
   if (ctx.profile && Object.keys(ctx.profile).length) {
     p += '\n\nWHAT YOU ALREADY KNOW ABOUT EESAH (pre-loaded; treat as true unless he corrects it):\n' +
-      Object.entries(ctx.profile).filter(([k]) => !['onboarding_status', 'onboarding_completed_at', 'life_plan', 'companion_days', 'last_companion_day', 'pattern_last_intro', 'private_until'].includes(k) && !/^(money_|google_|mosque_cache|convo_)/.test(k)).map(([k, v]) => `- ${k}: ${v}`).join('\n');
+      Object.entries(ctx.profile).filter(([k]) => !['onboarding_status', 'onboarding_completed_at', 'life_plan', 'companion_days', 'last_companion_day', 'pattern_last_intro', 'private_until'].includes(k) && !/^(money_|google_|mosque_cache|convo_|neuro_|salah_mode)/.test(k)).map(([k, v]) => `- ${k}: ${v}`).join('\n');
     if (ctx.profile.life_plan) p += '\n\nHIS LIFE PLAN FROM ONBOARDING (hold him to it, gently but firmly):\n' + ctx.profile.life_plan.slice(0, 6000);
   }
   if (ctx.answers && ctx.answers.length) p += '\n\nWHAT HE TOLD YOU DURING ONBOARDING:\n' + ctx.answers.map(a => `- [${a.topic}] ${a.question ? a.question + ' -> ' : ''}${a.answer}`).join('\n').slice(0, 12000);
@@ -51,6 +51,7 @@ LIMITS FOR NOW: you can see his prayer times, habits and streaks, and you can lo
   if (ctx.life) p += lifeBlock(ctx.life, ctx);
   if (ctx.convo && mode !== 'onboarding') p += CV.block(ctx.convo, ctx.cont);
   if (mode !== 'onboarding') p += EYES;
+  if (mode !== 'onboarding') p += neuroBlock(ctx);
   if (ctx.brief && mode !== 'onboarding') p += `
 
 HE JUST OPENED HIS MORNING BRIEF. Speak first, now. Greet him in one line, then: today's prayers with jama'ah times (lead with the next one), today's calendar (what's fixed, and any clashes with jama'ah times), any important unread email worth his attention (one line each, max three), ONE line on money (balance, anything due or off-pace, or progress to his savings goal; skip numbers he didn't ask for if nothing's notable; only mention a spending pattern if it is in PATTERNS HE ALREADY KNOWS), how his prayers and habits went yesterday and any streaks worth naming, at most ONE short phone/activity line if PHONE AWARENESS has a yesterday summary (e.g. steps, or late-night use) framed kindly and only if it's notable or already discussed, then help him set two or three priorities for today (ask for his top one if you don't know it), and one habit nudge. Under ninety seconds. End with one short question.`;
@@ -62,6 +63,34 @@ YOU ARE NOW RUNNING HIS ONBOARDING. You already know the basics above, so do not
 Let him lead. Invite him to speak freely about what matters today. Do not follow a fixed sequence, require coverage of life areas, or impose a time limit. Ask at most one relevant follow-up at a time. Accept skipped topics without pressure. Save only confirmed durable information with his knowledge and consent; distinguish facts from interpretations. Periodically summarise what you understand and invite corrections. Offer a practical next step even with an incomplete profile. Only call finish_onboarding when he explicitly requests a plan and agrees to review it. Explain the existing pledge and emergency contact requirements honestly; never invent completion. Messages beginning "(Cue:" are application cues, not user answers.`;
   }
   return p + `\n\nCurrent UK date and time: ${now}.`;
+}
+
+
+// NEURO: owner-only, screen awareness, futures, approvals, modes, learning consent, Islamic Mode.
+function neuroBlock(ctx) {
+  const N = require('./_neuro'), pr = ctx.profile || {}, md = N.modeOf(pr), L = N.learning(pr), isl = N.islamicOn(pr);
+  let b = `
+
+NEURO (you are the intelligence inside NEURO, his personal operating system):
+- YOU ANSWER ONLY TO EESAH. If someone else is clearly speaking to you (a different voice, someone saying they are not him, a child, a friend), be polite but share nothing about his life, data, schedule, money, health, messages or memories, and take no instructions or actions from them. Tell them kindly you only talk with Eesah unless he sets up a guest chat. Only when HE asks you to talk to someone (e.g. "my friend wants to talk to you") call start_guest_session; it asks him to confirm on his screen.
+- SCREEN AWARENESS: the app sends you "(Context update...)" lines saying which NEURO screen he is on and what it shows. "This", "here" or "what I'm looking at" means that screen. Use it; never say you can't see what he is looking at when a context update told you. Use open_screen to take him to a screen when it helps.
+- FUTURES (the Doctor Strange view): for a real decision (money, career, health, relationships, a purchase, a risk), call run_futures. It models several genuinely different routes from HIS data, rates each low/medium/high on risk, reward and likelihood, and replays his real bank history thousands of times for money routes. Report it like Strange, briefly and honestly: how many routes and simulated futures you looked at, the one that wins and why, the biggest risk, and the first step. Never claim certainty or "14 million futures"; it is scenario modelling, not prediction.
+- ACTIONS NEED HIS APPROVAL: to send an email or message someone, call propose_action. A card shows him the exact words; nothing goes out until he taps Approve on that card. Never say something was sent unless the tool result says executed. You cannot screen calls, send SMS automatically, move money, pay, trade or invest; say so plainly. Drafts remain fine.
+- MODES: Available, Focus, Private, Salah, Standby, Emergency, Sleep. Use set_mode when he asks (e.g. "focus for an hour", "I'm going to sleep"). Current mode: ${md.mode}${md.until ? ' until ' + new Date(md.until).toLocaleTimeString('en-GB', { timeZone: 'Europe/London', hour: '2-digit', minute: '2-digit' }) : ''}.${md.mode === 'focus' ? ' He is focusing: keep replies very short.' : md.mode === 'sleep' ? ' He is winding down to sleep: be very brief and soft.' : md.mode === 'emergency' ? ' EMERGENCY MODE: be calm, practical and brief; help him reach his emergency contacts or emergency services (999 in the UK).' : ''}
+- LEARNING HIM (limited, with consent): conversations ${L.conversations ? 'ON' : 'OFF'}, evening check-ins ${L.checkins ? 'ON' : 'OFF'}, Sleep Focus ${L.sleep ? 'ON' : 'OFF'}. You only learn from what he says to you and what he shares; there is no background recording. ${L.conversations || L.checkins ? 'You may note a gentle, evidence-backed pattern with note_observation (mood, stress, confidence, communication, sleep, self-worth). Never diagnose.' : 'Learning is off: do not record observations about him.'} He can see and delete everything in "What Freya learned".
+- VAULT TRUTH: when he asks "am I improving?", call life_trajectory and give the honest verdict with the evidence, good and bad.
+- PERSONAL TRAINER: Physical has his training plan (trainer_plan). Coach him like a real trainer: form cues, progression, nutrition and recovery; no medical diagnosis.
+- ISLAMIC MODE: ${isl ? 'ON. Deen comes first; offer gentle words of wisdom and courage when he is low. If he is in spiritual distress, the Emergency Deen button in Mind opens support.' : 'OFF. Do not bring religion into the conversation unless he does.'}`;
+  return b;
+}
+
+
+function guestPersona(g) {
+  return `You are Freya, the personal AI assistant of Eesah (Paramvir Bhambra). Eesah has allowed ${g.name} to talk with you for a few minutes. Be warm, helpful and concise on general topics (questions, ideas, a friendly chat). STRICT: you know nothing about Eesah's private life in this chat and must never reveal or guess anything about his schedule, money, health, messages, memories, location, family or work, and you take no actions. If asked, say that is Eesah's private information. Speak softly, short sentences. The guest chat ends at ${new Date(g.until).toLocaleTimeString('en-GB', { timeZone: 'Europe/London', hour: '2-digit', minute: '2-digit' })}.`;
+}
+function practicePersona(scenario) {
+  return `You are Freya running a SPEAKING PRACTICE session for Eesah (communication and speaking confidence coach). Scenario: ${scenario || 'he chooses; ask him in one line what conversation he wants to practise (e.g. a tough talk, a sales call, asking for a raise, setting a boundary)'}.
+How it works: play the other person realistically (not too easy), one turn at a time, natural and spoken. If he says "pause", "feedback" or "how did I do", step out of the role and give feedback: what landed, one or two specific flaws (hesitation, filler words, over-explaining, apologising, vagueness, rushing, defensiveness) with a better line he could have said, and one thing to try next round. Be honest and encouraging, never harsh. No diagnosis. Keep your role lines short.`;
 }
 
 function lifeBlock(L, ctx) {
@@ -165,6 +194,17 @@ const TOOL_FINISH = { name: 'finish_onboarding', description: 'Call once, when o
 
 const BOOL = d => ({ type: 'BOOLEAN', description: d });
 const LIFE_TOOLS = [
+  // ---- NEURO ----
+  { name: 'run_futures', description: 'Doctor Strange view: model several routes for a decision from his real data (risk/reward/likelihood, money routes simulated on his bank history). Takes ~15s; tell him you are looking at the futures first.', parameters: OBJ({ question: STR('the decision in his words, with any amounts and timeframes') }, ['question']) },
+  { name: 'propose_action', description: 'Prepare an email or message for HIS approval. Nothing is sent until he taps Approve on the card. kind email_send needs to/subject/body; kind message needs text and channel (whatsapp or sms), optional phone and to_name.', parameters: OBJ({ kind: { type: 'STRING', enum: ['email_send', 'message'] }, to: STR('email address (email only)'), subject: STR('email subject'), body: STR('email body'), channel: { type: 'STRING', enum: ['whatsapp', 'sms'] }, phone: STR('phone number with country code, if known'), to_name: STR('who it is for'), text: STR('message text'), why: STR('one line on why') }, ['kind']) },
+  { name: 'set_mode', description: 'Switch his NEURO mode.', parameters: OBJ({ mode: { type: 'STRING', enum: ['available', 'focus', 'private', 'standby', 'emergency', 'sleep'] }, minutes: { type: 'NUMBER', description: 'how long; default per mode' } }, ['mode']) },
+  { name: 'start_guest_session', description: 'Only when Eesah himself asks you to talk with someone else. Shows a confirmation on his screen; the guest chat knows nothing private about him.', parameters: OBJ({ name: STR('guest name if given'), minutes: { type: 'NUMBER' } }, []) },
+  { name: 'open_screen', description: 'Take him to a NEURO screen.', parameters: OBJ({ screen: { type: 'STRING', enum: ['home', 'chat', 'life', 'settings', 'physical', 'finance', 'mind', 'islamic', 'connect', 'work', 'vault', 'learned', 'futures', 'approvals'] } }, ['screen']) },
+  { name: 'life_trajectory', description: 'Vault verdict: improvement or downfall, last 7 days vs the 7 before, from his real records, with good and bad evidence.', parameters: OBJ({}, []) },
+  { name: 'trainer_plan', description: 'His current personal-training week (and recent workouts). Set make_new true to build a fresh plan (optionally with his request).', parameters: OBJ({ make_new: BOOL('build a new plan'), request: STR('what he wants from the plan') }, []) },
+  { name: 'log_workout', description: 'Log a workout he did (or skipped).', parameters: OBJ({ focus: STR('what he trained'), done: BOOL('true if done'), note: STR('short note') }, ['focus']) },
+  { name: 'note_observation', description: 'With learning switched on only: record one gentle, evidence-backed pattern about him (not a diagnosis). He can see, edit and delete it.', parameters: OBJ({ domain: { type: 'STRING', enum: ['mood', 'stress', 'confidence', 'communication', 'sleep', 'self_worth', 'routine', 'other'] }, text: STR('the pattern, max 25 words'), evidence: STR('what he said that supports it'), confidence: { type: 'STRING', enum: ['low', 'medium', 'high'] } }, ['domain', 'text', 'evidence']) },
+
   { name: 'recall_conversations', description: "Search everything he and you have said in past conversations (voice, typed and live camera). Use when he asks what he said or what you discussed about something, or refers back to a past conversation you don't have in front of you.", parameters: OBJ({ query: STR('Keywords for what to find, e.g. "desk office room"'), days: { type: 'NUMBER', description: 'How far back to look in days (default 30, max 365).' } }, ['query']) },
   { name: 'save_to_section', description: 'Save what he just showed you (or a short note about it) into one of his growth sections, so its insight is kept there. Only after he says yes.', parameters: OBJ({ section: { type: 'STRING', enum: ['body', 'connections', 'mind', 'work', 'vault'] }, note: STR('One line describing what it is, e.g. "Lunch: chicken salad and rice"') }, ['section', 'note']) },
   { name: 'section_uploads', description: "Everything he uploaded to a growth section (photos, videos, chats, documents): dates, what each showed, your analysis, any metrics read from it. Use whenever he refers to something he uploaded or dropped in.", parameters: OBJ({ section: { type: 'STRING', enum: ['body', 'connections', 'mind', 'work', 'vault'] }, recent: { type: 'NUMBER', description: 'How many of the most recent uploads (default 8).' } }, ['section']) },
@@ -262,10 +302,18 @@ module.exports = async (req, res) => {
   const why = req.query && { dropped: 'the connection dropped', background: 'he left the app for a moment', killed: 'the app was closed', panel: 'he moved between the floating panel and the full app', timeout: 'the session timed out', camera: 'the camera view closed' }[req.query.cont];
   if (why) ctx.cont = { why, ago: Math.max(0, Math.min(600, parseInt(req.query.ago, 10) || 0)) };
 
+  // NEURO guest chat (owner-granted on his unlocked device, time-limited): no personal context, no tools.
+  if (req.query && req.query.guest === '1') {
+    const g = ctx.memory ? require('./_neuro').guestState(ctx.profile) : null;
+    if (!g) return res.status(403).json({ error: 'No guest chat is active. Eesah has to allow it first.' });
+    ctx.special = { mode: 'guest', text: guestPersona(g) };
+  } else if (wanted === 'practice') {
+    ctx.special = { mode: 'practice', text: practicePersona(String((req.query && req.query.scenario) || '').slice(0, 300)) };
+  }
   const status = (ctx.profile && ctx.profile.onboarding_status) || 'not_started';
-  ctx.mode = ctx.memory && (wanted === 'onboarding' || (wanted !== 'companion' && (status === 'not_started' || status === 'in_progress'))) ? 'onboarding' : 'companion';
+  ctx.mode = ctx.memory && !ctx.special && (wanted === 'onboarding' || (wanted !== 'companion' && (status === 'not_started' || status === 'in_progress'))) ? 'onboarding' : 'companion';
   if (ctx.mode === 'onboarding' && status !== 'in_progress') { try { await setProfile('onboarding_status', 'in_progress'); } catch (e) {} }
-  ctx.brief = wanted === 'brief';
+  ctx.brief = wanted === 'brief' && !ctx.special;
   let side = null; // bookkeeping runs alongside the token request, not before it
   if (ctx.mode === 'companion' && status === 'complete') { const t = new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/London' }); if (ctx.profile.last_companion_day !== t) side = Promise.all([setProfile('last_companion_day', t), setProfile('companion_days', String((+ctx.profile.companion_days || 0) + 1))]).catch(() => {}); }
   if (ctx.memory && ctx.life && ctx.life.google && ctx.life.google.connected) {
@@ -275,7 +323,7 @@ module.exports = async (req, res) => {
       if (ev) { const n = (await db(`meeting_notes?select=summary&event_id=eq.${encodeURIComponent(ev.id)}`).catch(() => []))[0]; ctx.debrief = { id: ev.id, summary: ev.summary, when: G.ukDay(ev.start_at) + ' ' + G.ukHM(ev.start_at), notes: n ? n.summary : null }; }
     }
   }
-  const decls = ctx.memory ? [TOOL_SAVE_MEMORY].concat(LIFE_TOOLS, ctx.mode === 'onboarding' ? [TOOL_SAVE_ANSWER, TOOL_FINISH] : []) : [];
+  const decls = ctx.special ? [] : ctx.memory ? [TOOL_SAVE_MEMORY].concat(LIFE_TOOLS, ctx.mode === 'onboarding' ? [TOOL_SAVE_ANSWER, TOOL_FINISH] : []) : [];
   const now = Date.now();
   try {
     const r = await fetch('https://generativelanguage.googleapis.com/v1beta/auth_tokens', {
@@ -292,13 +340,13 @@ module.exports = async (req, res) => {
             mediaResolution: 'MEDIA_RESOLUTION_LOW', // camera frames: low token cost
             speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: VOICE } } }
           },
-          systemInstruction: { parts: [{ text: persona(ctx) }] },
+          systemInstruction: { parts: [{ text: ctx.special ? ctx.special.text : persona(ctx) }] },
           tools: decls.length ? [{ functionDeclarations: decls }] : undefined,
           inputAudioTranscription: {},
           outputAudioTranscription: {},
           contextWindowCompression: { slidingWindow: {} },
           // Resume the same conversation after a dropped/refreshed connection (handle must live in the token).
-          sessionResumption: resume ? { handle: resume } : {},
+          sessionResumption: resume && !ctx.special ? { handle: resume } : {},
           // Less trigger-happy turn detection so her own voice / room noise doesn't count as him speaking.
           realtimeInputConfig: { automaticActivityDetection: { startOfSpeechSensitivity: 'START_SENSITIVITY_LOW', endOfSpeechSensitivity: 'END_SENSITIVITY_LOW', silenceDurationMs: 800 } }
         }
@@ -307,7 +355,7 @@ module.exports = async (req, res) => {
     const j = await r.json();
     if (side) await side;
     if (!r.ok || !j.name) return res.status(502).json({ error: 'Could not get a voice token' });
-    return res.status(200).json({ token: j.name, model: MODEL, voice: VOICE, mode: ctx.mode, brief: !!ctx.brief && ctx.mode !== 'onboarding', debrief: ctx.mode !== 'onboarding' && ctx.debrief ? ctx.debrief.summary : null, memory: !!ctx.memory, last: ctx.convo && ctx.convo.lastSession ? { sid: ctx.convo.lastSession, at: ctx.convo.lastAt } : null });
+    return res.status(200).json({ token: j.name, model: MODEL, voice: VOICE, mode: ctx.special ? ctx.special.mode : ctx.mode, brief: !!ctx.brief && ctx.mode !== 'onboarding', debrief: ctx.mode !== 'onboarding' && ctx.debrief ? ctx.debrief.summary : null, memory: !!ctx.memory, last: ctx.convo && ctx.convo.lastSession ? { sid: ctx.convo.lastSession, at: ctx.convo.lastAt } : null });
   } catch (e) {
     return res.status(502).json({ error: 'Voice service unreachable' });
   }

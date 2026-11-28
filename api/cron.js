@@ -110,6 +110,11 @@ module.exports = async (req, res) => {
     }
     // Housekeeping: old dedupe keys
     if (now.min < 10) await db(`notifications_sent?sent_at=lt.${new Date(Date.now() - 7 * 864e5).toISOString()}`, { method: 'DELETE' });
+    // NEURO learning window: a short evening check-in, only if he switched it on (Learning settings).
+    try {
+      const NE = require('./_neuro'), L = NE.learning(s.profile), cm = toMin(L.checkin_time);
+      if (L.checkins && !s.private.on && now.min >= cm && now.min < cm + 60) await send(`checkin:${now.date}`, { title: 'Two minutes, Eesah?', body: 'Quick check-in: energy, mood, one win, one thing on your mind.', priority: 'low', url: '/?checkin=1', tag: 'checkin' });
+    } catch (e) { out.push('checkin_failed'); }
     // Meeting debrief offers (quiet, low priority)
     for (const ev of pendingDebriefs) {
       if (s.private.on) break;

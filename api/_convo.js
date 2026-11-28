@@ -146,6 +146,8 @@ NEW TURNS:\n${turns.map(t => `[${uk(t.created_at)}] ${WHO[t.role] || t.role}: ${
       }
       await db(`convo_sessions?id=eq.${encodeURIComponent(s.id)}`, { method: 'PATCH', body: { summary: clip(String(r.session_summary || s.summary || ''), 2000) || null } });
       if (r.rolling_summary) { await setProfile('convo_summary', clip(String(r.rolling_summary), 2500)); }
+      // NEURO learning (only if he opted in to 'learn from our conversations'): derived observations from his own words.
+      try { await require('./_neuro').learnFromTurns(turns, { profile: p }); } catch (e) {}
       done++;
       s.facts = saved;
     } catch (e) {
