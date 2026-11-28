@@ -34,7 +34,7 @@ const volKey = () => isNight() ? 'freyaVolNight' : 'freyaVol';
 function curVol() { const v = parseFloat(localStorage.getItem(volKey())); return isNaN(v) ? (isNight() ? 0.25 : 0.5) : Math.max(0, Math.min(1, v)); }
 function setVol(v) {
   v = Math.max(0, Math.min(1, Math.round(v * 100) / 100)); localStorage.setItem(volKey(), String(v));
-  if (outGain && outCtx) outGain.gain.setTargetAtTime(v, outCtx.currentTime, 0.05);
+  if (outGain && outCtx && !(window.freyaSalah && freyaSalah.on())) outGain.gain.setTargetAtTime(v, outCtx.currentTime, 0.05);
   const r = document.getElementById('volr'); if (r) r.value = Math.round(v * 100);
   return v;
 }
@@ -124,7 +124,9 @@ function b64FromBuf(buf) {
   for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000));
   return btoa(s);
 }
+const salahOn = () => !!(window.freyaSalah && freyaSalah.on());
 function playPcm(b64) {
+  if (salahOn()) return; // salah mode: completely silent, whatever arrives
   const bin = atob(b64), n = bin.length >> 1, f = new Float32Array(n);
   for (let i = 0; i < n; i++) { let v = bin.charCodeAt(2 * i) | (bin.charCodeAt(2 * i + 1) << 8); if (v & 0x8000) v -= 0x10000; f[i] = v / 32768; }
   const buf = outCtx.createBuffer(1, n, 24000); buf.copyToChannel(f, 0);
@@ -135,6 +137,37 @@ function playPcm(b64) {
   src.onended = () => { sources.delete(src); if (!sources.size) lastPlayEnd = performance.now(); if (!sources.size && active) { setState('listening'); setStatus(mode === 'onboarding' ? 'Setting you up · listening…' : 'Listening…'); checkFinish(); } };
   setBusy(false); setState('speaking'); setStatus('Speaking…');
 }
+// ---------- audio guard: her voice must never silently die (e.g. when the camera starts on Android) ----------
+// If the output context gets suspended/interrupted, resume it; if its clock freezes while she has audio queued, rebuild it.
+let guardCT = -1, guardStuck = 0;
+function buildOut() {
+  outCtx = new AudioContext({ sampleRate: 24000 }); outCtx.resume().catch(() => {});
+  analyser = outCtx.createAnalyser(); analyser.fftSize = 256;
+  outGain = outCtx.createGain(); outGain.gain.value = salahOn() ? 0 : curVol(); analyser.connect(outGain); outGain.connect(outCtx.destination);
+  outCtx.onstatechange = () => { if (active && outCtx && outCtx.state !== 'running' && outCtx.state !== 'closed') outCtx.resume().catch(() => {}); };
+}
+function rebuildOut(why) {
+  const old = outCtx; guardStuck = 0; guardCT = -1;
+  sources.forEach(x => { try { x.stop(); } catch (e) {} }); sources.clear(); nextTime = 0;
+  buildOut(); try { old && old.close(); } catch (e) {}
+  try { console.log('[freya] audio output rebuilt:', why); } catch (e) {}
+}
+window.freyaAudio = {
+  // Re-bind her output to the phone's current audio route (called right after the camera starts, while she's quiet).
+  rebind: () => { if (!active || !outCtx) return; if (sources.size) { outCtx.resume().catch(() => {}); return; } rebuildOut('camera'); },
+  kick: () => { try { outCtx && outCtx.resume(); micCtx && micCtx.resume(); } catch (e) {} },
+  mute: on => { if (outGain && outCtx) { const g = outGain.gain; g.cancelScheduledValues(outCtx.currentTime); g.value = on ? 0 : curVol(); } if (on) stopPlayback(); },
+  state: () => outCtx ? { state: outCtx.state, t: outCtx.currentTime, queued: sources.size } : null,
+  _rebuild: rebuildOut
+};
+setInterval(() => {
+  if (!active || !outCtx) { guardStuck = 0; guardCT = -1; return; }
+  if (outCtx.state === 'suspended' || outCtx.state === 'interrupted') outCtx.resume().catch(() => {});
+  if (micCtx && (micCtx.state === 'suspended' || micCtx.state === 'interrupted')) micCtx.resume().catch(() => {});
+  if (sources.size && outCtx.currentTime === guardCT) { if (++guardStuck >= 3) rebuildOut('clock stalled'); }
+  else guardStuck = 0;
+  guardCT = outCtx.currentTime;
+}, 700);
 function stopPlayback() {
   sources.forEach(s => { try { s.stop(); } catch (e) {} }); sources.clear(); nextTime = 0; lastPlayEnd = performance.now();
   if (active) { setState('listening'); setStatus('Listening…'); }
@@ -184,7 +217,7 @@ function ripple(strength) {
 })();
 
 // ---------- tools ----------
-const post = (url, body) => fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then(r => { if (r.status === 401) showLock(); return r.json().catch(() => ({})).then(j => ({ ok: r.ok, ...j })); });
+const post = (url, body) => (url !== '/api/token' && (tokCache = null, !active && prefetchToken(4000)), fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then(r => { if (r.status === 401) showLock(); return r.json().catch(() => ({})).then(j => ({ ok: r.ok, status: r.status, ...j })); }));
 const getJ = url => fetch(url, { cache: 'no-store' }).then(r => { if (r.status === 401) showLock(); return r.json().catch(() => ({})).then(j => ({ ok: r.ok, status: r.status, ...j })); });
 let pendingStop = null;
 function here() {
@@ -202,7 +235,9 @@ async function handleTool(f) {
     if (f.name === 'save_memory') { const r = await post('/api/memory', { category: a.category, content: a.content }); if (r.ok) toast('Noted: ' + a.content); return r.ok ? 'saved' : 'not saved'; }
     if (f.name === 'save_answer') { const r = await post('/api/onboarding', { action: 'answer', topic: a.topic, question: a.question, answer: a.answer }); if (r.ok) toast('Noted · ' + (a.topic || 'answer')); return r.ok ? 'saved' : 'not saved'; }
     if (f.name === 'get_prayer_times') { const r = await getJ('/api/prayers'); return r.ok ? JSON.stringify({ today: r.today, tomorrow: r.tomorrow, next: r.next, mosque: r.mosque, travelling: r.travelling }) : 'unavailable'; }
-    if (f.name === 'log_prayer') { const r = await post('/api/state', { action: 'log', name: a.prayer, status: a.status }); if (r.ok) { toast(a.status === 'clear' ? 'Cleared ' + a.prayer : 'Logged · ' + a.prayer + (a.status === 'jamaah' ? ' in jama\'ah' : a.status === 'missed' ? ' (missed)' : '')); loadLife(); } return r.ok ? 'logged' : (r.error || 'failed'); }
+    if (f.name === 'log_prayer') return await prayerTool(a);
+    if (f.name === 'start_salah_mode') { if (salahOn()) return 'Salah mode is already on. Stay completely silent.'; if (!window.freyaEyes) return 'Camera not available.'; setTimeout(() => freyaEyes.open({ salah: true }), 50); return 'Salah mode is opening. From now on stay completely silent: say nothing at all (not even a goodbye) until you get the cue that salah mode has ended.'; }
+    if (f.name === 'salah_complete') return window.freyaSalah && freyaSalah.on() ? await freyaSalah.complete('freya', a.positions_seen) : 'Salah mode is not on. Only call this during salah mode.';
     if (f.name === 'log_habit') { const r = await post('/api/state', { action: 'log', name: a.name, status: a.done === false ? 'missed' : 'done' }); if (r.ok) { toast('Logged · ' + a.name); loadLife(); } return r.ok ? 'logged' : (r.error || 'failed'); }
     if (f.name === 'add_habit') { const r = await post('/api/state', { action: 'add_habit', name: a.name }); if (r.ok) { toast('New habit: ' + a.name); loadLife(); } return r.ok ? 'added' : 'failed'; }
     if (f.name === 'set_private_mode') {
@@ -267,6 +302,18 @@ async function handleTool(f) {
   } catch (e) { return 'error'; }
   return 'unknown tool';
 }
+// Prayers: only with proof, checked on the server. Never on his word alone.
+async function prayerTool(a) {
+  if (a.status === 'missed') { const r = await post('/api/state', { action: 'prayer_missed', prayer: a.prayer }); if (r.ok) { toast('Noted · ' + cap(a.prayer) + ' missed'); loadLife(); } return r.ok ? 'Marked missed.' : (r.error || 'failed'); }
+  if (a.evidence === 'camera' || salahOn()) {
+    if (salahOn()) return await freyaSalah.complete('freya');
+    return 'Camera proof only works in salah mode. If he is about to pray at home, call start_salah_mode.';
+  }
+  const img = window.freyaEyes && freyaEyes.recentPhoto ? await freyaEyes.recentPhoto().catch(() => null) : null;
+  const r = await post('/api/state', { action: 'prayer_log', kind: 'masjid', prayer: a.prayer || undefined, images: img ? [img] : [] });
+  if (r.ok && r.verified) { toast((r.prayer ? cap(r.prayer) : 'Prayer') + ' logged · at the masjid'); loadLife(); if (window.freyaSalahPanel) freyaSalahPanel.refresh(); }
+  return JSON.stringify({ logged: !!r.ok, already: !!r.already, prayer: r.prayer, status: r.status, evidence: r.evidence, reason: r.reason, tell_him: r.say || r.error || 'failed' });
+}
 // Her Body progress photos, put in front of her as one dated contact sheet (oldest to newest).
 async function lookAtPhotos(count) {
   const r = await getJ('/api/state?sec=photos&count=' + Math.max(2, Math.min(6, +count || 4)));
@@ -310,15 +357,48 @@ function checkFinish() {
 }
 
 // ---------- session ----------
-async function connect(isReconnect) {
+function tokenQuery(isReconnect, handle, cont) {
   let q = forceOnboarding ? '?mode=onboarding' : (briefPending && !isReconnect ? '?mode=brief' : (debriefPending && !isReconnect ? '?mode=debrief&event=' + encodeURIComponent(debriefPending) : ''));
-  const resuming = !!resumeHandle;
-  if (resuming) q += (q ? '&' : '?') + 'resume=' + encodeURIComponent(resumeHandle);
-  else if (contInfo) q += (q ? '&' : '?') + 'cont=' + encodeURIComponent(contInfo.why) + '&ago=' + contInfo.ago;
-  const r = await fetch('/api/token' + q, { method: 'POST', cache: 'no-store' });
-  if (r.status === 401) { showLock(); throw new Error('Locked. Unlock with your fingerprint first.'); }
-  const j = await r.json().catch(() => ({}));
-  if (!r.ok || !j.token) throw new Error(j.error || "Couldn't reach her brain. Try again in a moment.");
+  if (handle) q += (q ? '&' : '?') + 'resume=' + encodeURIComponent(handle);
+  else if (cont) q += (q ? '&' : '?') + 'cont=' + encodeURIComponent(cont.why) + '&ago=' + cont.ago;
+  return q;
+}
+// ---------- instant connect: a voice token is fetched ahead of time (on open, on return, after each chat) ----------
+// The token is single-use and valid for 10 minutes; we use it for up to 8. Anything he changes clears it.
+let tokCache = null, tokTimer = null;
+const tokKey = q => q.replace(/&?ago=\d+/, '');
+const fetchToken = q => fetch('/api/token' + q, { method: 'POST', cache: 'no-store' }).then(async r => ({ status: r.status, ok: r.ok, j: await r.json().catch(() => ({})) }));
+function planConv() { // what start() will do with the saved thread, without changing anything
+  const c = readLS('freyaConv', conv) || {}, gap = Date.now() - (c.at || 0), special = forceOnboarding || briefPending || debriefPending || nudgePending;
+  if (!c.sid || gap > 30 * 60e3 || special) return { handle: null, cont: null };
+  const why = c.ended && !['stopped', 'picking'].includes(c.ended) ? c.ended : null;
+  return { handle: gap < 110 * 60e3 && c.handle ? c.handle : null, cont: why ? { why, ago: Math.round(gap / 60e3) } : null };
+}
+function prefetchToken(delay) {
+  clearTimeout(tokTimer);
+  tokTimer = setTimeout(() => {
+    if (active || connecting || document.hidden || !navigator.onLine) return;
+    const p = planConv(), q = tokenQuery(false, p.handle, p.cont), entry = { key: tokKey(q), at: Date.now() };
+    entry.p = fetchToken(q).then(x => { if (!x.ok || !x.j.token) { if (tokCache === entry) tokCache = null; } return x; }).catch(() => { if (tokCache === entry) tokCache = null; return null; });
+    tokCache = entry;
+    tokTimer = setTimeout(() => prefetchToken(0), 8 * 60e3); // keep one fresh while she's on screen
+  }, delay || 0);
+}
+async function getToken(q) {
+  const c = tokCache; tokCache = null;
+  if (c && c.key === tokKey(q) && Date.now() - c.at < 8 * 60e3) { const x = await c.p; if (x && x.ok && x.j.token) { window.freyaTiming && (freyaTiming.prefetched = true); return x; } }
+  return fetchToken(q);
+}
+window.freyaPrefetch = prefetchToken;
+setTimeout(() => prefetchToken(0), 50);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) prefetchToken(300); else clearTimeout(tokTimer); });
+async function connect(isReconnect) {
+  const q = tokenQuery(isReconnect, resumeHandle, resumeHandle ? null : contInfo);
+  const tk = await getToken(q);
+  if (tk.status === 401) { showLock(); throw new Error('Locked. Unlock with your fingerprint first.'); }
+  const j = tk.j;
+  if (!tk.ok || !j.token) throw new Error(j.error || "Couldn't reach her brain. Try again in a moment.");
+  if (window.freyaTiming) freyaTiming.token = Math.round(performance.now() - freyaTiming.t0);
   model = j.model; mode = j.mode || 'companion';
   await new Promise((resolve, reject) => {
     const sock = new WebSocket(WS_URL + '?access_token=' + encodeURIComponent(j.token));
@@ -331,7 +411,7 @@ async function connect(isReconnect) {
     sock.onmessage = async ev => {
       const m = JSON.parse(typeof ev.data === 'string' ? ev.data : await ev.data.text());
       if (m.sessionResumptionUpdate && m.sessionResumptionUpdate.resumable !== false && m.sessionResumptionUpdate.newHandle) { resumeHandle = m.sessionResumptionUpdate.newHandle; conv.handle = resumeHandle; conv.at = Date.now(); saveConv(); }
-      if (m.setupComplete) { clearTimeout(to); const old = ws; ws = sock; try { old && old !== sock && old.close(1000); } catch (e) {} resolve(); }
+      if (m.setupComplete) { clearTimeout(to); if (window.freyaTiming) freyaTiming.setup = Math.round(performance.now() - freyaTiming.t0); const old = ws; ws = sock; try { old && old !== sock && old.close(1000); } catch (e) {} resolve(); }
     };
   });
   const sock = ws;
@@ -351,6 +431,7 @@ async function connect(isReconnect) {
         caption(himEl, sc.inputTranscription.text, !newHimTurn, 7000); newHimTurn = false; newHerTurn = true; himBuf += sc.inputTranscription.text;
         if (!sources.size) setBusy(true);
       }
+      if (salahOn()) { if (sc.turnComplete) { turnDone = true; setBusy(false); } herBuf = ''; himBuf = ''; if (m.goAway && active) refresh(); return; } // silent: no captions, nothing saved
       if (sc.outputTranscription && sc.outputTranscription.text) { if (newHerTurn) flushHim(); caption(herEl, sc.outputTranscription.text, !newHerTurn, 9000); newHerTurn = false; newHimTurn = true; herBuf += sc.outputTranscription.text; }
       for (const p of (sc.modelTurn && sc.modelTurn.parts) || []) if (p.inlineData && p.inlineData.data) { turnDone = false; playPcm(p.inlineData.data); }
       if (sc.turnComplete) { turnDone = true; newHerTurn = true; setBusy(false); flushHim(); flushHer(); checkFinish(); }
@@ -391,18 +472,19 @@ async function refresh(e) {
 async function start() {
   if (connecting) return; connecting = true;
   setState('connecting'); setStatus('Connecting…'); clearCaptions();
+  window.freyaTiming = { t0: performance.now() };
   try {
     if (!navigator.onLine) throw new Error("You're offline. Check your connection and try again.");
-    outCtx = new AudioContext({ sampleRate: 24000 });
-    micCtx = new AudioContext({ sampleRate: 16000 });
-    outCtx.resume(); micCtx.resume();
-    analyser = outCtx.createAnalyser(); analyser.fftSize = 256;
-    outGain = outCtx.createGain(); outGain.gain.value = curVol(); analyser.connect(outGain); outGain.connect(outCtx.destination);
-    let micOk = true;
-    try { micStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } }); }
-    catch (e) { micOk = false; }
-    if (micOk) {
+    buildOut();
+    micCtx = new AudioContext({ sampleRate: 16000 }); micCtx.resume();
+    // The mic warms up while she connects (in parallel, not before).
+    const micP = (async () => {
+      const mc = micCtx;
+      try { micStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } }); }
+      catch (e) { return false; }
+      if (mc !== micCtx) return false;
       await micCtx.audioWorklet.addModule(URL.createObjectURL(new Blob([WORKLET], { type: 'application/javascript' })));
+      if (mc !== micCtx) { try { micStream && micStream.getTracks().forEach(t => t.stop()); } catch (e) {} return false; } // stopped while warming up
       micNode = new AudioWorkletNode(micCtx, 'pcm16');
       micCtx.createMediaStreamSource(micStream).connect(micNode);
       micNode.port.onmessage = e => {
@@ -413,9 +495,12 @@ async function start() {
         const herTalking = sources.size > 0 || performance.now() - lastPlayEnd < 500;
         const lvl = Math.sqrt(sum / (s.length / 4)) / 6000;
         const data = herTalking && lvl < 0.35 ? new ArrayBuffer(e.data.byteLength) : e.data;
+        if (window.freyaSalah && freyaSalah.on()) return; // salah mode: his recitation never reaches her as speech
         if (ws && ws.readyState === 1) ws.send(JSON.stringify({ realtimeInput: { audio: { data: b64FromBuf(data), mimeType: 'audio/pcm;rate=16000' } } }));
       };
-    }
+      if (window.freyaTiming) freyaTiming.mic = Math.round(performance.now() - freyaTiming.t0);
+      return true;
+    })().catch(() => false);
     active = true; turnDone = false; finishing = null; himBuf = ''; herBuf = '';
     // Same conversation if he's back within 30 minutes (resume handle if still valid, else rebuilt from saved turns).
     try { localStorage.removeItem('freyaOpenQ'); } catch (e) {} if (window.freyaReplies) freyaReplies.hide();
@@ -432,6 +517,9 @@ async function start() {
     catch (err) { if (!resumeHandle) throw err; resumeHandle = null; conv.handle = null; await connect(false); } // stale handle: fresh session, same memory
     connecting = false;
     $('textbar').hidden = false; $('redo').hidden = true;
+    setState('listening'); setStatus(mode === 'onboarding' ? 'Setting you up · listening…' : 'Listening…'); // live as soon as she's connected
+    const micOk = await micP;
+    if (window.freyaTiming) { freyaTiming.ready = Math.round(performance.now() - freyaTiming.t0); try { console.log('[freya] connect ms', JSON.stringify(freyaTiming)); } catch (e) {} }
     if (APP) try { FreyaAndroid.sessionActive(true); } catch (e) {}
     setState('listening');
     setStatus(micOk ? (mode === 'onboarding' ? 'Setting you up · listening…' : 'Listening…') : 'Mic is off. Type to talk to her below.');
@@ -453,6 +541,7 @@ function stop(msg, reason) {
   outCtx && outCtx.close().catch(() => {}); outCtx = null; analyser = null; outGain = null;
   $('textbar').hidden = true; $('redo').hidden = !(onboardingState.configured && onboardingState.status === 'complete');
   setState('idle'); setStatus(msg || idleMsg);
+  prefetchToken(1500); // the next tap connects instantly
 }
 
 orb.addEventListener('click', () => {
@@ -672,12 +761,7 @@ function renderLife() {
     txt = `${n.prayer === 'dhuhr' && sc.today.jumuah && n.day === 'today' ? "Jumu'ah" : cap(n.prayer)} ${n.iqamah ? "jama'ah " : ''}${target} · ${fmtIn(mins)}`;
   }
   $('next').textContent = txt + (sc.travelling ? ' · travelling' : sc.today.source !== 'mawaqit' ? ' · calculated' : '');
-  const habits = life.habits || [];
-  $('dots').innerHTML = PR.map(p => {
-    const h = habits.find(x => x.kind === 'prayer' && x.name.toLowerCase() === p) || {};
-    const st = h.today || '', done = ['done', 'prayed', 'jamaah', 'qada'].includes(st);
-    return `<button class="dot ${done ? 'done' : ''} ${st === 'missed' ? 'missed' : ''} ${st === 'jamaah' ? 'jamaah' : ''}" data-p="${p}" aria-label="${cap(p)}: ${st || 'not logged'}"><i></i><span>${cap(p)[0]}</span></button>`;
-  }).join('');
+  if (window.freyaSalahPanel) freyaSalahPanel.render();
   if (!active) setStatus(pv.on && pv.auto && !pv.manualUntil ? `Salah time. I'll be here after ${cap(pv.auto.prayer)}.` : pv.on && pv.meeting && !pv.manualUntil ? `You're in "${pv.meeting.summary}". I'll keep quiet.` : idleMsg);
   showGoogleChip(false);
   $('mbtn').hidden = onboardingState.status !== 'complete';
@@ -692,23 +776,56 @@ const fmtIn = m => m <= 0 ? 'now' : m < 60 ? `in ${m} min` : `in ${Math.floor(m 
 setInterval(() => { if (authed && life) { renderLife(); } }, 30000);
 setInterval(() => { if (authed && !document.hidden) loadLife(); }, 5 * 60000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden && authed) loadLife(); });
-$('dots').addEventListener('click', e => {
-  const b = e.target.closest('.dot'); if (!b) return;
-  const p = b.dataset.p, h = (life.habits || []).find(x => x.kind === 'prayer' && x.name.toLowerCase() === p) || {};
-  const cycle = { '': 'prayed', null: 'prayed', prayed: 'jamaah', jamaah: 'missed', missed: 'clear', done: 'jamaah', qada: 'clear' };
-  const next = cycle[h.today || ''] || 'prayed';
-  h.today = next === 'clear' ? null : next; renderLife();
-  post('/api/state', { action: 'log', name: p, status: next }).then(r => { if (r.ok) toast(next === 'clear' ? `${cap(p)} cleared` : `${cap(p)} · ${next === 'jamaah' ? "in jama'ah" : next}`); loadLife(); });
-});
-// Check-in from a notification: /?log=asr
+// ================= Salah: view-only tracker behind a button. Only Freya logs a prayer, with proof. =================
+window.freyaSalahPanel = (() => {
+  const btn = $('sbtn'), view = $('salahv');
+  const EV = { camera: 'Verified · camera', masjid: 'At masjid', freya: 'Marked by Freya' };
+  const DONE = ['done', 'prayed', 'jamaah', 'qada'];
+  const nowMin = () => { const n = new Date(new Date().toLocaleString('en-US', { timeZone: 'Europe/London' })); return n.getHours() * 60 + n.getMinutes(); };
+  const toM = hm => { const [h, m] = String(hm).split(':').map(Number); return h * 60 + m; };
+  function rows() {
+    const sc = life && life.schedule, hs = (life && life.habits) || [], due = life && life.due;
+    return PR.map((p, i) => {
+      const h = hs.find(x => x.kind === 'prayer' && x.name.toLowerCase() === p) || {}, t = sc && sc.today && sc.today.prayers ? sc.today.prayers[p] : null;
+      const st = h.today || '', done = DONE.includes(st);
+      let label = done ? (EV[h.evidence] || (st === 'jamaah' ? "Logged · jama'ah" : 'Logged')) + (st === 'qada' ? ' · qada' : '') : st === 'missed' ? 'Missed' : '';
+      if (!label) label = due && due.prayer === p ? 'Due now' : t && toM(t.adhan) > nowMin() ? 'Later' : 'Not logged';
+      return { p, t, done, st, label, due: !!(due && due.prayer === p && !done) };
+    });
+  }
+  function render() {
+    if (!life || !life.schedule) return;
+    btn.hidden = !(onboardingState && onboardingState.status === 'complete') || document.body.classList.contains('mini');
+    const r = rows(), n = r.filter(x => x.done).length;
+    btn.querySelector('b').textContent = n + '/5';
+    btn.classList.toggle('due', r.some(x => x.due));
+    btn.setAttribute('aria-label', `Salah: ${n} of 5 logged today`);
+    if (!view.hidden) fill();
+  }
+  function fill() {
+    const sc = life.schedule, r = rows(), due = r.find(x => x.due), nx = sc.next;
+    $('sv-next').textContent = nx ? `Next · ${cap(nx.prayer)} ${nx.iqamah ? "jama'ah " + nx.iqamah : nx.adhan}${nx.day === 'tomorrow' ? ' tomorrow' : ''}` : '';
+    $('sv-list').innerHTML = r.map(x => `<div class="sv-row ${x.done ? 'done' : ''} ${x.st === 'missed' ? 'missed' : ''} ${x.due ? 'due' : ''}"><i></i><span class="sv-n">${cap(x.p)}</span><span class="sv-t">${x.t ? esc(x.t.adhan) + (x.t.iqamah ? ' · ' + esc(x.t.iqamah) : '') : ''}</span><span class="sv-s">${esc(x.label)}</span></div>`).join('');
+    $('sv-pray').textContent = due ? `Pray ${cap(due.p)} with Freya` : 'Pray with Freya';
+  }
+  function open() { view.hidden = false; fill(); loadLife(); }
+  btn.addEventListener('click', () => { if (!authed) return showLock(); open(); });
+  $('sv-close').addEventListener('click', () => { view.hidden = true; });
+  view.addEventListener('click', e => { if (e.target === view) view.hidden = true; });
+  $('sv-pray').addEventListener('click', () => { view.hidden = true; if (window.freyaEyes) freyaEyes.open({ salah: true }); });
+  $('sv-photo').addEventListener('click', () => { view.hidden = true; if (window.freyaEyes) freyaEyes.masjidPhoto(); });
+  return { render, open, refresh: () => loadLife() };
+})();
+// Check-in from a notification: /?log=asr (no ticking: she needs to see it)
 (function () {
   const p = new URLSearchParams(location.search).get('log');
   if (!p || !PR.includes(p)) return;
-  $('logq-title').textContent = `Did you pray ${cap(p)}?`; $('logq').hidden = false;
+  $('logq-title').textContent = `${cap(p)}: show Freya and she'll log it.`; $('logq').hidden = false;
   $('logq').onclick = e => {
     const st = e.target.dataset && e.target.dataset.s; if (!st) return;
     $('logq').hidden = true; history.replaceState(null, '', '/');
-    if (st !== 'later') post('/api/state', { action: 'log', name: p, status: st }).then(() => { toast(`${cap(p)} logged`); loadLife(); });
+    if (st === 'pray' && window.freyaEyes) freyaEyes.open({ salah: true });
+    if (st === 'photo' && window.freyaEyes) freyaEyes.masjidPhoto();
   };
 })();
 

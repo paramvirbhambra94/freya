@@ -346,6 +346,9 @@ const ANALYSIS_SCHEMA = OBJ({
   rewrites: ARR(OBJ({ original: S('his original line'), better: S('sharper version in his voice'), why: S('why, briefly') }), 'Connections only: up to 3 of his lines rewritten; [] otherwise')
 });
 
+// Mind & Deen photos also get one extra question: is this him at the masjid? (Then Freya checks it properly and logs the prayer.)
+const MIND_IMG_SCHEMA = { ...ANALYSIS_SCHEMA, properties: { ...ANALYSIS_SCHEMA.properties, masjid_photo: { type: 'BOOLEAN', description: 'true if this photo looks like it was taken at or inside a mosque/masjid (prayer hall, rows, mihrab, masjid carpet)' } } };
+
 async function analyse(id) {
   const it = (await db(`section_items?select=*&id=eq.${encodeURIComponent(id)}`))[0];
   if (!it) return { ok: false, error: 'not found' };
@@ -370,14 +373,19 @@ async function analyse(id) {
       if (it.mime === 'text/plain') parts.push({ text: '\nITEM TEXT:\n' + buf.toString('utf8').slice(-60000) });
       else parts.push({ inlineData: { mimeType: it.mime, data: buf.toString('base64') } });
     } else throw new Error('raw_gone');
-    const a = await gen(parts, ANALYSIS_SCHEMA, { models: ['gemini-flash-lite-latest', 'gemini-flash-latest'], timeout: 25000, temperature: 0.4 });
+    const mindImg = it.section === 'mind' && /^image\//.test(it.mime || '') && parts.length > 1 && parts[parts.length - 1].inlineData;
+    const a = await gen(parts, mindImg ? MIND_IMG_SCHEMA : ANALYSIS_SCHEMA, { models: ['gemini-flash-lite-latest', 'gemini-flash-latest'], timeout: 25000, temperature: 0.4 });
+    let prayer = null;
+    if (mindImg && (a.masjid_photo || /masjid|mosque|jama|salah|prayer hall/i.test(`${it.name || ''} ${a.summary || ''} ${(a.tags || []).join(' ')}`))) {
+      try { prayer = await require('./_salah').logWithEvidence({ kind: 'masjid', images: [parts[parts.length - 1].inlineData.data] }); } catch (e) { prayer = null; }
+    }
     const analysis = { title: clip(a.title, 80), tags: (a.tags || []).slice(0, 5).map(t => clip(t, 24).toLowerCase()), summary: clip(a.summary, 400), dates: (a.dates || []).slice(0, 5), rewrites: (a.rewrites || []).slice(0, 3) };
     for (const t of (a.insights || []).slice(0, 3)) await db('section_insights', { method: 'POST', body: { section: it.section, item_id: it.id, kind: 'insight', text: clip(t, 600), data: analysis.rewrites.length && it.section === 'connections' ? { rewrites: analysis.rewrites } : null } });
     if (a.question) await addQuestion(it.section, a.question, it.id).catch(() => {});
     const keys = new Set((c.metrics || []).map(m => m.key)), units = Object.fromEntries((c.metrics || []).map(m => [m.key, m.unit]));
     for (const m of (a.metrics || []).filter(m => keys.has(m.key) && isFinite(m.value)).slice(0, 6)) await db('section_metrics', { method: 'POST', body: { section: it.section, key: m.key, value: m.value, unit: units[m.key] || null, item_id: it.id } });
     await db(`section_items?id=eq.${it.id}`, { method: 'PATCH', body: { status: 'analysed', analysis } });
-    return { ok: true, id: it.id, status: 'analysed', analysis, insights: a.insights || [], question: a.question || '' };
+    return { ok: true, id: it.id, status: 'analysed', analysis, insights: a.insights || [], question: a.question || '', prayer };
   } catch (e) {
     const failed = (it.attempts || 0) + 1 >= 3;
     await db(`section_items?id=eq.${it.id}`, { method: 'PATCH', body: { status: failed ? 'failed' : 'pending' } }).catch(() => {});
@@ -464,10 +472,17 @@ async function ask(b) {
     db(`section_metrics?select=key,value,unit,at&section=eq.${key}&order=at.desc&limit=40`),
     db(`section_items?select=kind,analysis,created_at&section=eq.${key}&status=eq.analysed&order=created_at.desc&limit=30`)
   ]);
+  // "Log this as me attending" in Mind & Deen: Freya checks his latest masjid photo and logs the prayer herself.
+  let prayerNote = '', prayer = null;
+  if (key === 'mind' && /\b(log|logged|mark|tick|record|update|count|attend|attended)\b/i.test(q) && /(salah|salat|pray|prayer|masjid|mosque|jama|fajr|dhuhr|zuhr|asr|maghrib|isha|tracker|attend)/i.test(q)) {
+    const want = (q.match(/\b(fajr|dhuhr|zuhr|asr|maghrib|isha)\b/i) || [])[1];
+    try { prayer = await require('./_salah').logWithEvidence({ kind: 'masjid', prayer: want ? want.toLowerCase().replace('zuhr', 'dhuhr') : undefined }); } catch (e) { prayer = { ok: false, say: "I couldn't check that just now." }; }
+    prayerNote = `\nPRAYER LOG RESULT (just happened, tell him plainly in your first sentence): ${prayer.say || (prayer.ok ? 'logged' : 'not logged')}${prayer.ok ? '' : ' Prayers are only logged with proof: a photo of him at the masjid (upload it here) or praying in front of you with Pray with Freya.'}`;
+  }
   const hist = (Array.isArray(b.history) ? b.history : []).slice(-6).map(h => `${h.who === 'me' ? 'Eesah' : 'FREYA'}: ${clip(h.text, 400)}`).join('\n');
-  const text = await gen([{ text: `You are FREYA, Eesah's calm, warm, sharp AI companion. Answer his question about his "${META[key].name}" space in 1-4 short sentences, British English, specific, no lists unless asked, never recite everything you know.\nSECTION CONFIG: ${JSON.stringify({ headline: c.headline, goals: c.goals, metrics: c.metrics, coaching_plan: c.coaching_plan, tone: c.tone })}\nMETRICS (newest first): ${JSON.stringify(mets)}\nINSIGHTS: ${ins.map(i => `[${i.created_at.slice(0, 10)} ${i.kind}] ${i.text}`).join(' | ')}\nITEMS: ${items.map(i => `[${i.created_at.slice(0, 10)} ${i.kind}] ${i.analysis && i.analysis.title}: ${i.analysis && i.analysis.summary} ${(i.analysis && i.analysis.dates || []).map(d => d.what + ' ' + d.date).join(', ')}`).join(' | ')}\n${hist ? 'CONVERSATION SO FAR:\n' + hist + '\n' : ''}QUESTION: ${q}` }], null, { temperature: 0.5 });
+  const text = await gen([{ text: `You are FREYA, Eesah's calm, warm, sharp AI companion. Answer his question about his "${META[key].name}" space in 1-4 short sentences, British English, specific, no lists unless asked, never recite everything you know.\nSECTION CONFIG: ${JSON.stringify({ headline: c.headline, goals: c.goals, metrics: c.metrics, coaching_plan: c.coaching_plan, tone: c.tone })}\nMETRICS (newest first): ${JSON.stringify(mets)}\nINSIGHTS: ${ins.map(i => `[${i.created_at.slice(0, 10)} ${i.kind}] ${i.text}`).join(' | ')}\nITEMS: ${items.map(i => `[${i.created_at.slice(0, 10)} ${i.kind}] ${i.analysis && i.analysis.title}: ${i.analysis && i.analysis.summary} ${(i.analysis && i.analysis.dates || []).map(d => d.what + ' ' + d.date).join(', ')}`).join(' | ')}\n${hist ? 'CONVERSATION SO FAR:\n' + hist + '\n' : ''}${prayerNote}\nQUESTION: ${q}` }], null, { temperature: 0.5 });
   saveTurns(key, [['user', `(in ${META[key].name}) ${q}`], ['freya', text]], 'ask' + Date.now().toString(36)).catch(() => {});
-  return { ok: true, text };
+  return { ok: true, text, prayer };
 }
 
 async function setSetting(b) {

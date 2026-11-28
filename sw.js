@@ -1,6 +1,6 @@
-const C='freya-v12';
+const C='freya-v13';
 self.addEventListener('install',e=>{e.waitUntil(caches.open(C).then(c=>c.addAll(['/','/app.js','/sections.js', '/eyes.js','/style.css','/manifest.webmanifest','/icon-192.png','/icon-512.png','/mark.svg','/icon.svg'])));self.skipWaiting()});
-self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(ks=>Promise.all(ks.filter(k=>k!==C).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));
+self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(ks=>Promise.all(ks.filter(k=>k!==C&&k!=='freya-flags').map(k=>caches.delete(k)))).then(()=>self.clients.claim())));
 self.addEventListener('fetch',e=>{
   const u=new URL(e.request.url);
   if(e.request.method!=='GET'||u.origin!==location.origin||u.pathname.startsWith('/api/'))return;
@@ -15,7 +15,11 @@ self.addEventListener('push',e=>{
   if(pr==='critical'){opts.requireInteraction=true;opts.vibrate=[500,200,500,200,800];}
   else if(pr==='low'){opts.silent=true;}
   else{opts.vibrate=[180,80,180];}
-  e.waitUntil(self.registration.showNotification(d.title||'F.R.E.Y.A.',opts));
+  // Salah mode: he is praying in front of Freya's camera. Nothing may buzz him (the server holds pushes too).
+  e.waitUntil(caches.open('freya-flags').then(c=>c.match('/__salah')).then(r=>r?r.text():'0').catch(()=>'0').then(u=>{
+    if(+u>Date.now()&&pr!=='critical')return;
+    return self.registration.showNotification(d.title||'F.R.E.Y.A.',opts);
+  }));
 });
 self.addEventListener('notificationclick',e=>{
   e.notification.close();

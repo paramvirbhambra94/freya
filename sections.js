@@ -229,6 +229,7 @@
       const r = await post('/api/state', { action: 'sec_ask', section: k, q, history: askHist }).catch(() => ({}));
       const w = $('ask-wait'); if (w) { w.removeAttribute('id'); w.textContent = r.text || "I couldn't answer that just now. Try again in a moment."; }
       askHist.push({ who: 'me', text: q }, { who: 'her', text: r.text || '' });
+      if (r.prayer) prayerResult(r.prayer);
     });
     $('wipe').onclick = () => {
       card(`<p class="kicker">Delete everything · ${esc(d.name)}</p><h3>Are you sure?</h3><p>This deletes every upload, thumbnail, insight and metric in ${esc(d.name)}, and resets the section to its questions. It can't be undone.</p><div class="row"><button class="ghost" data-c="close">Cancel</button><button id="wipe-yes" class="dangerb">Yes, delete everything</button></div>`);
@@ -351,6 +352,13 @@
     set(r.ok ? 'Done · insight ready' : (r.error || 'Saved. I’ll finish it in the background.')); liveCtx(k, kind, r); if (cur && cur === k) refresh();
     return r;
   }
+  // A masjid photo in Mind & Deen: Freya checked it and (if credible) logged the prayer herself.
+  function prayerResult(p) {
+    if (!p) return;
+    if (p.ok) { toast(p.say || 'Prayer logged'); if (typeof loadLife === 'function') loadLife(); }
+    else if (p.error === 'not_verified') toast(p.say || 'Freya couldn’t verify that photo');
+    if (window.freyaContext) window.freyaContext('Salah tracker: ' + (p.say || (p.ok ? 'prayer logged' : 'not logged')) + ' (from the photo he just put in Mind & Deen; you checked it).');
+  }
   // Tell a live voice session what just landed in a section, so she knows without him re-sharing.
   function liveCtx(k, kind, r) {
     if (!window.freyaContext) return; const a = (r && r.analysis) || {};
@@ -376,7 +384,8 @@
       if (u.thumb_upload && thumb) await putFile(u.thumb_upload, thumb, 'image/jpeg').catch(() => {});
       set('Freya is looking…');
       const r = await post('/api/state', { action: 'sec_uploaded', section: k, id: u.id }).catch(() => ({}));
-      set(r.ok ? 'Done · insight ready' : (r.error || 'Saved. I’ll finish it in the background.'));
+      set(r.ok ? (r.prayer && r.prayer.ok ? 'Done · ' + (r.prayer.say || 'prayer logged') : 'Done · insight ready') : (r.error || 'Saved. I’ll finish it in the background.'));
+      prayerResult(r.prayer);
       liveCtx(k, kind, r);
       if (cur === k) refresh();
       return r.ok ? { ok: true, insight: r.insight || (r.analysis && r.analysis.summary) || null } : { ok: !!u.id, pending: true, error: r.error };

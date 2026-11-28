@@ -58,25 +58,32 @@
   }
 
   // ---------- live camera ----------
-  async function openCam() {
-    if (opening || stream) return; opening = true;
+  async function openCam(opts) {
+    const wantSalah = !!(opts && opts.salah);
+    if (stream) { if (wantSalah && !salah) startSalah(); return; }
+    if (opening) return; opening = true;
+    if (wantSalah) { facing = 'user'; vid.classList.add('selfie'); }
     try {
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error('nocam');
       try { stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: facing }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false }); }
       catch (e) { stream = null; toast(e && e.name === 'NotAllowedError' ? 'Camera is blocked. Allow it for FREYA in your phone settings.' : 'Couldn’t open the camera.'); return; }
       vid.srcObject = stream; await vid.play().catch(() => {});
       cam.hidden = false; document.body.classList.add('cam-on'); paused = false; setPaused(false); capEl.textContent = ''; camSince = new Date().toISOString(); seenBuf = []; lastSeenSend = Date.now();
+      if (wantSalah) startSalah(); // silent from the very first moment, even while she connects
       const ok = await ensureSession();
       if (!stream) return;
       if (!ok) { closeCam('failed'); toast('Couldn’t reach her just now. Try again in a moment.'); return; }
+      // Android can move or stall audio output when the camera starts: re-bind her voice to the current route now, while she's quiet.
+      if (window.freyaAudio) { freyaAudio.kick(); freyaAudio.rebind(); }
       let first = true;
       clearInterval(timer);
       timer = setInterval(() => {
         if (!stream || paused || !ws || ws.readyState !== 1) return;
         const f = grab(MAX_SIDE, Q); if (!f) return;
         sendFrame(f);
-        if (first) { first = false; cue('(Cue, not his words: Eesah just opened live camera. You can now see what his phone camera sees, about one frame a second. Say one short line that you are looking, then wait for him.)'); }
+        if (first) { first = false; if (salah) salahCue(true); else cue('(Cue, not his words: Eesah just opened live camera. You can now see what his phone camera sees, about one frame a second. Keep talking out loud with your normal voice the whole time the camera is on. Say one short line that you are looking, then wait for him.)'); }
         const now = Date.now();
+        if (salah) return; // while he prays nothing about the frames is described or remembered
         if (!seenBuf.length || now - seenBuf[seenBuf.length - 1].t > 20000) { const s = grab(320, 0.5); if (s) { seenBuf.push({ t: now, f: s }); if (seenBuf.length > 3) seenBuf.shift(); } }
         if (now - lastSeenSend > 90000 && seenBuf.length) { lastSeenSend = now; sendSeen('camera', seenBuf.map(x => x.f)); seenBuf = []; }
       }, FPS_MS);
@@ -87,22 +94,26 @@
     $('cam-pause').textContent = p ? 'Resume' : 'Pause'; $('cam-pause').setAttribute('aria-label', p ? 'Let her watch again' : 'Pause her watching');
   }
   async function closeCam(why) {
+    if (salah && why !== 'salah') abortSalah(why);
     if (!stream) { cam.hidden = true; document.body.classList.remove('cam-on'); return; }
     clearInterval(timer); timer = null;
     const s = stream; stream = null; s.getTracks().forEach(t => t.stop()); vid.srcObject = null;
     cam.hidden = true; document.body.classList.remove('cam-on');
     const frames = seenBuf.map(x => x.f); seenBuf = [];
-    if (why !== 'background' && why !== 'session' && ws && ws.readyState === 1) cue('(Cue, not his words: he closed the camera, so you can no longer see. Don\'t comment on it unless he speaks; carry on the conversation normally.)');
+    if (window.freyaAudio) freyaAudio.kick();
+    if (why !== 'background' && why !== 'session' && why !== 'salah' && ws && ws.readyState === 1) cue('(Cue, not his words: he closed the camera, so you can no longer see. Don\'t comment on it unless he speaks; carry on the conversation normally.)');
     setBusy(false);
     // Her key suggestions land in the chat history (and on screen) once she's finished.
     const r = await sendSeen('camera', frames, true);
-    if (r && r.notes && r.notes.length && !document.hidden) notesCard(r.notes);
+    if (why !== 'salah' && r && r.notes && r.notes.length && !document.hidden) notesCard(r.notes);
   }
   function notesCard(points) {
     card(`<p class="kicker">From live camera</p><ul class="camnotes">${points.map(p => `<li>${esc(p)}</li>`).join('')}</ul><p class="hint">Saved to your conversation. Ask her about any of it later.</p><div class="row"><button id="cn-ok">Got it</button></div>`);
     $('cn-ok').onclick = hideCard;
   }
-  $('cam-end').addEventListener('click', () => closeCam('end'));
+  $('cam-end').addEventListener('click', () => { if (salah) return complete('user-end'); closeCam('end'); });
+  $('cam-fin').addEventListener('click', () => { if (salah) complete('user'); });
+  $('cam-pray').addEventListener('click', () => { if (!salah) startSalah(); });
   $('cam-pause').addEventListener('click', () => setPaused(!paused));
   $('cam-flip').addEventListener('click', async () => {
     if (!stream) return; facing = facing === 'environment' ? 'user' : 'environment';
@@ -112,6 +123,99 @@
   // Her ring in the corner mirrors the orb (listening pulse, speaking glow); her words appear as captions.
   new MutationObserver(() => { ringEl.dataset.state = orb.dataset.state; }).observe(orb, { attributes: true, attributeFilter: ['data-state'] });
   new MutationObserver(() => { if (stream) { const t = herEl.textContent || ''; capEl.textContent = t.length > 160 ? '…' + t.slice(-160).replace(/^\S*\s/, '') : t; capEl.classList.toggle('on', herEl.classList.contains('on') && !!t); } }).observe(herEl, { childList: true, characterData: true, subtree: true, attributes: true, attributeFilter: ['class'] });
+
+  // ---------- salah mode: she watches him pray in total silence, then logs it herself (server-verified) ----------
+  let salah = null;
+  const sEl = $('cam-salah'), doneEl = $('cam-done');
+  const setFlag = until => { try { caches.open('freya-flags').then(c => c.put('/__salah', new Response(String(until || 0)))); } catch (e) {} };
+  function salahCue(first) {
+    if (!(ws && ws.readyState === 1)) return;
+    const due = life && life.due ? life.due.prayer : null;
+    const txt = first
+      ? `(Cue, not his words: SALAH MODE IS ON. Eesah is about to pray${due ? ' ' + due : ''} in front of the camera. From now until salah mode ends, be completely silent: do not speak, do not make any sound, do not reply to anything, produce no audio at all. Just watch the frames. When you have seen him complete the prayer, through the final sitting and the tasleem (turning his head right then left), call salah_complete once. Never call it before.)`
+      : '(Salah check, silent, not his words: still salah mode. Produce no speech or audio. If you have now seen him finish the prayer with the tasleem, call salah_complete; otherwise do nothing and keep watching.)';
+    ws.send(JSON.stringify({ realtimeInput: { text: txt } }));
+  }
+  function startSalah() {
+    if (salah) return;
+    salah = { since: Date.now(), frames: [], attempts: 0, checking: false };
+    if (window.freyaAudio) freyaAudio.mute(true);
+    document.body.classList.add('salah-on'); cam.classList.add('salah');
+    sEl.hidden = false; doneEl.hidden = true; $('cam-fin').hidden = false; $('cam-pray').hidden = true; capEl.textContent = ''; clearCaptions();
+    if (window.freyaReplies) freyaReplies.hide();
+    hideCard && !$('card').hidden && hideCard();
+    post('/api/state', { action: 'salah_mode', on: true, minutes: 35 }).catch(() => {});
+    setFlag(Date.now() + 35 * 60e3);
+    try { if (ws && ws.readyState === 1) ws.send(JSON.stringify({ realtimeInput: { audioStreamEnd: true } })); } catch (e) {}
+    if (ws && ws.readyState === 1 && !first0()) salahCue(true);
+    // Proof: a small still every 3 seconds, kept only in memory and sent once to be checked (never stored).
+    salah.grab = setInterval(() => {
+      if (!stream || paused) return; const f = grab(384, 0.55); if (!f) return;
+      salah.frames.push(f); if (salah.frames.length > 240) salah.frames = salah.frames.filter((_, i) => i % 2 === 0);
+    }, 3000);
+    salah.poll = setInterval(() => salahCue(false), 30000);
+    salah.max = setTimeout(() => complete('timeout'), 30 * 60e3);
+  }
+  const first0 = () => !timer; // camera stream not yet sending: the first-frame cue will carry the salah instruction
+  function pickFrames(fr, n) { if (fr.length <= n) return fr.slice(); const out = []; for (let i = 0; i < n; i++) out.push(fr[Math.round(i * (fr.length - 1) / (n - 1))]); return out; }
+  async function complete(by, positions) {
+    if (!salah) return 'Salah mode is not on.';
+    if (salah.checking) return 'Already checking; stay silent.';
+    if (by === 'freya' && salah.lastTry && Date.now() - salah.lastTry < 45000) return 'Checked moments ago and not verified yet. Stay completely silent and keep watching.';
+    if (salah.frames.length < 6) {
+      if (by === 'freya') return 'Too early to be sure. Stay completely silent and keep watching; call salah_complete only after the tasleem.';
+      if (by === 'user-end') { abortSalah('cancel'); closeCam('salah'); return 'cancelled'; }
+      showDone('Keep going. I need to see a bit more first.', 'wait'); setTimeout(() => { if (salah && !salah.checking) doneEl.hidden = true; }, 2500); return 'not enough';
+    }
+    salah.checking = true; showDone('Checking…', 'wait');
+    const r = await post('/api/state', { action: 'prayer_log', kind: 'camera', images: pickFrames(salah.frames, 14) }).catch(() => ({}));
+    if (!salah) return 'ended';
+    if (r && r.ok) { endSalah(r, true); return 'Logged and verified. Salah mode is ending now; stay silent until you get the cue, then confirm it in one short warm line.'; }
+    // Her own early/false call never ends salah mode: only a verified log, his Finished/✕ or the time limit does.
+    if (by === 'freya' && !(r && r.already)) { salah.attempts++; salah.lastTry = Date.now(); salah.checking = false; doneEl.hidden = true; return 'Not verified yet (' + ((r && (r.reason || r.say)) || 'unclear') + '). Stay completely silent and keep watching; call salah_complete again only after you see the tasleem.'; }
+    endSalah(r || {}, false); return 'Not logged. Salah mode is ending; when you get the cue, tell him why in a few words.';
+  }
+  function showDone(t, kind) { doneEl.textContent = t; doneEl.className = kind || ''; doneEl.hidden = false; }
+  function clearSalah() {
+    if (!salah) return; clearInterval(salah.grab); clearInterval(salah.poll); clearTimeout(salah.max);
+    post('/api/state', { action: 'salah_mode', on: false }).catch(() => {}); setFlag(0);
+  }
+  function endSalah(r, ok) {
+    const name = r.prayer ? r.prayer[0].toUpperCase() + r.prayer.slice(1) : 'Prayer';
+    showDone(ok ? `✓ ${name} logged · verified on camera` : 'Not logged. ' + (r.say || 'I couldn’t verify it.'), ok ? 'ok' : 'no');
+    clearSalah(); loadLife();
+    setTimeout(() => {
+      const say = r.say || (ok ? name + ' logged.' : 'Not verified.');
+      salah.frames = []; salah = null;
+      document.body.classList.remove('salah-on'); cam.classList.remove('salah'); sEl.hidden = true; $('cam-fin').hidden = true; $('cam-pray').hidden = false;
+      if (window.freyaAudio) freyaAudio.mute(false);
+      closeCam('salah');
+      if (ws && ws.readyState === 1) cue(`(Cue, not his words: salah mode has ended and the camera is closed. Result: ${say} Speak normally again now, out loud: ${ok ? 'one short warm line confirming it is logged' : 'say in a few words why it could not be verified and that he can pray in front of you again or show a masjid photo'}, then wait.)`);
+    }, 2400);
+  }
+  function abortSalah(why) {
+    if (!salah) return; clearSalah(); salah.frames = []; salah = null;
+    document.body.classList.remove('salah-on'); cam.classList.remove('salah'); sEl.hidden = true; doneEl.hidden = true; $('cam-fin').hidden = true; $('cam-pray').hidden = false;
+    if (window.freyaAudio) freyaAudio.mute(false);
+    if (why !== 'background' && why !== 'session' && ws && ws.readyState === 1) cue('(Cue, not his words: salah mode was cancelled before he finished; nothing was logged. You may speak normally again. Say nothing unless he speaks.)');
+  }
+  window.freyaSalah = { on: () => !!salah, complete, start: () => openCam({ salah: true }), _frames: n => { if (salah) for (let i = 0; i < n; i++) salah.frames.push(grab(384, 0.55) || ''); } };
+
+  // ---------- masjid photo as proof (from the salah panel or a check-in notification) ----------
+  async function masjidPhoto() {
+    const f = await pick('image/*', true); if (!f) return;
+    toast('Freya is checking your photo…');
+    let b64; try { b64 = await blobB64(await freyaSections.toJpeg(f, 1024, 0.8)); } catch (e) { return toast('Couldn’t read that photo.'); }
+    lastMedia = { file: f, at: Date.now(), kind: 'photo' };
+    const r = await post('/api/state', { action: 'prayer_log', kind: 'masjid', images: [b64] }).catch(() => ({}));
+    loadLife();
+    if (active && ws && ws.readyState === 1) { sendFrame(b64); cue(`(Cue, not his words: he just showed you a photo from the masjid as proof for his salah; it is the image you just received. Result from the check: ${r.say || 'it could not be checked'}. Tell him the result in one short warm line.)`); }
+    else card(`<p class="kicker">Salah</p><p class="rq">${esc(r.say || 'I couldn’t check that just now. Try again in a moment.')}</p><div class="row"><button id="mp-ok">OK</button></div>`), $('mp-ok').onclick = hideCard;
+  }
+  async function recentPhoto() {
+    if (!lastMedia || lastMedia.kind !== 'photo' || Date.now() - lastMedia.at > 60 * 60e3) return null;
+    return blobB64(await freyaSections.toJpeg(lastMedia.file, 1024, 0.8));
+  }
 
   // ---------- photo / video into the conversation ----------
   async function share(file) {
@@ -130,7 +234,7 @@
     pushTurn('user', kind === 'video' ? `(shared a ${secs}s video)` : '(shared a photo)');
     setTimeout(() => cue(kind === 'video'
       ? `(Cue, not his words: Eesah just shared a ${secs}-second video with you; the frame you just received is 6 stills from it in order, left to right, top to bottom. Look closely. In one line say what you see, then give the most useful practical suggestions for what he most likely wants. Ask what he wants if it's unclear. If it fits one of his growth sections, offer once to save it there.)`
-      : '(Cue, not his words: Eesah just shared a photo with you; it is the image you just received. Look closely. In one line say what you see, then give the most useful practical suggestions for what he most likely wants. Ask what he wants if it\'s unclear. If it fits one of his growth sections, offer once to save it there.)'), 250);
+      : '(Cue, not his words: Eesah just shared a photo with you; it is the image you just received. Look closely. In one line say what you see, then give the most useful practical suggestions for what he most likely wants. Ask what he wants if it\'s unclear. If it fits one of his growth sections, offer once to save it there. If it shows him at the masjid and he wants his salah counted, call log_prayer with evidence photo.)'), 250);
     sendSeen(kind, [small]);
   }
 
@@ -202,5 +306,5 @@
   // Stopping mid-conversation right after she asked something: offer the reply box straight away.
   new MutationObserver(() => { if (!active) setTimeout(checkReplies, 700); }).observe(orb, { attributes: true, attributeFilter: ['data-state'] });
 
-  window.freyaEyes = { on: isOn, close: closeCam, open: openCam, share, saveToSection };
+  window.freyaEyes = { on: isOn, close: closeCam, open: openCam, share, saveToSection, masjidPhoto, recentPhoto };
 })();

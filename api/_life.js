@@ -9,14 +9,15 @@ async function getHabits() {
   const today = london().date, since = dayStr(today, -60);
   const [habits, logs] = await Promise.all([
     db('habits?select=id,name,kind,sort&active=eq.true&order=sort.asc,id.asc'),
-    db(`habit_logs?select=habit_id,day,status&day=gte.${since}&order=day.desc`)
+    db(`habit_logs?select=habit_id,day,status,evidence,verified_at&day=gte.${since}&order=day.desc`)
   ]);
   return habits.map(h => {
     const mine = logs.filter(l => l.habit_id === h.id), byDay = Object.fromEntries(mine.map(l => [l.day, l.status]));
     let streak = 0, k = DONE.includes(byDay[today]) ? 0 : -1;
     while (DONE.includes(byDay[dayStr(today, k)])) { streak++; k--; }
     const last7 = [...Array(7)].map((_, i) => DONE.includes(byDay[dayStr(today, -i)]) ? 1 : 0).reduce((a, b) => a + b, 0);
-    return { id: h.id, name: h.name, kind: h.kind, today: byDay[today] || null, streak, last7 };
+    const tl = mine.find(l => l.day === today);
+    return { id: h.id, name: h.name, kind: h.kind, today: byDay[today] || null, evidence: tl ? tl.evidence || null : null, verifiedAt: tl ? tl.verified_at || null : null, streak, last7 };
   });
 }
 async function findHabit(name) {
@@ -26,6 +27,8 @@ async function findHabit(name) {
 async function logHabit(name, status = 'done', day) {
   const h = await findHabit(name);
   if (!h) return { ok: false, error: 'No habit called ' + name };
+  // Accountability: prayers are never ticked by hand. Only Freya logs them, with evidence (see _salah.js).
+  if (h.kind === 'prayer') return { ok: false, forbidden: true, error: 'Prayers can only be logged by Freya with proof: Pray with Freya on camera, or a photo at the masjid.' };
   day = day || london().date;
   if (status === 'clear') await db(`habit_logs?habit_id=eq.${h.id}&day=eq.${day}`, { method: 'DELETE' });
   else await db('habit_logs?on_conflict=habit_id,day', { method: 'POST', prefer: 'resolution=merge-duplicates', body: { habit_id: h.id, day, status } });
@@ -61,11 +64,12 @@ async function setPrivate(on, minutes) {
   return { ok: true, on: !!on, until: until || null };
 }
 
-async function lifeState() {
-  const profile = await getProfile();
+async function lifeState(given) {
+  const profile = given || await getProfile();
   const schedule = await getSchedule(profile).catch(() => null);
   const [habits, priv] = await Promise.all([getHabits(), getPrivate(profile, schedule)]);
-  return { profile, schedule, habits, private: priv, briefTime: profile.brief_time || '07:30', google: { connected: profile.google_status === 'connected', status: profile.google_status || 'not_connected', email: profile.google_email || null } };
+  const { salahModeOn, dueNow } = require('./_salah');
+  return { profile, schedule, habits, private: priv, salahMode: salahModeOn(profile), due: dueNow(schedule), briefTime: profile.brief_time || '07:30', google: { connected: profile.google_status === 'connected', status: profile.google_status || 'not_connected', email: profile.google_email || null } };
 }
 
 // ---- Web Push ----
@@ -78,6 +82,8 @@ async function vapid() {
 }
 // priority: critical | high | low
 async function sendPush({ title, body, priority = 'high', url = '/', tag }) {
+  // Salah mode (he is praying in front of the camera): hold every notification until he's done.
+  try { const rows = await db("profile?select=value&key=eq.salah_mode_until"); if (rows[0] && rows[0].value && new Date(rows[0].value) > new Date()) return 0; } catch (e) {}
   const { wp } = await vapid();
   const subs = await db('push_subscriptions?select=endpoint,sub');
   let sent = 0;

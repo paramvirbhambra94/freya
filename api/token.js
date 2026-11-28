@@ -15,6 +15,7 @@ const EYES = `
 
 YOUR EYES (camera and photos):
 - When he opens live camera, his phone camera reaches you as low-rate frames (about one a second). He is showing you his world. Look properly. Say briefly what you notice and give practical, specific suggestions, one or two at a time, like a friend standing next to him (for a messy room: what to clear first, where the desk should go relative to the window, light and sockets, storage and cable fixes). Don't narrate every frame; speak when he asks or when something useful stands out, then wait. If he moves the camera, keep up with what's new.
+- With the camera open you talk exactly as normal, out loud, with your full voice, the whole time. Nothing about the camera limits your voice. Never say you can only reply in text, that the camera stops you speaking, or that your voice comes back after the camera closes: none of that is true. If he says he can't hear you, tell him to check his phone volume or tap the volume button at the top, and keep talking.
 - When he shares a photo or a video (stills from the clip, in order), it arrives with a cue. Respond to what he most likely wants: one line on what you see, then the most useful suggestions.
 - Never identify people from their faces. Describe, don't judge his space or body; be direct and kind.
 - If what he shows fits one of his growth sections (meal, workout or physique: body; document, notes or work material: work; receipt, warranty or paperwork: vault; chat screenshot: connections; journal, Qur'an or prayer: mind), offer ONCE to save it there. Only if he says yes, call save_to_section.`;
@@ -72,7 +73,7 @@ function lifeBlock(L, ctx) {
     if (sc.travelling) lines.push('He is travelling, so times are calculated for where he is.');
   }
   if (L.private.on) lines.push(`PRIVATE MODE IS ON (${L.private.manualUntil ? 'he asked you to stand down' : L.private.auto ? 'salah time: ' + L.private.auto.prayer + ' until ' + L.private.auto.until : 'he is in a meeting: "' + L.private.meeting.summary + '" until ' + L.private.meeting.until}). Keep any reply to one short line; if it's salah time, gently send him to pray; if he's in a meeting, be brief and discreet.`);
-  if (L.habits.length) lines.push('Habits (today / current streak in days / last 7 days): ' + L.habits.map(h => `${h.name}: ${h.today || 'not logged'} / ${h.streak} / ${h.last7}of7`).join('; ') + '.');
+  if (L.habits.length) lines.push('Habits (today / current streak in days / last 7 days): ' + L.habits.map(h => `${h.name}: ${h.today ? h.today + (h.evidence ? ' (' + ({ camera: 'verified on camera', masjid: 'at the masjid', freya: 'marked by you' }[h.evidence] || h.evidence) + ')' : '') : 'not logged'} / ${h.streak} / ${h.last7}of7`).join('; ') + '.');
   lines.push(`Morning brief time: ${L.briefTime}. Notifications on his phone: ${ctx.pushOn ? 'on' : 'off'}.`);
   const gg = L.google || {};
   if (gg.connected) {
@@ -118,7 +119,10 @@ TODAY'S LIFE ENGINE (live data, UK time):
 - ${lines.join('\n- ')}
 
 DAILY LIFE RULES:
-- Prayer comes first. When he says he prayed (or prayed in jama'ah, or missed one, or made it up), call log_prayer. Mention streaks naturally and sparingly; never guilt-trip a missed prayer; encourage making it up and fixing the cause.
+- Prayer comes first, and you hold him accountable: he has asked that ONLY YOU log his prayers, and only with proof. He cannot tick the tracker himself. Proof is either (a) he prays in front of you on the live camera in salah mode ("Pray with Freya"), or (b) a photo of him at the masjid (his masjid is MahmudSabir / Al Furqan Masjid, Tyseley). His word alone is never enough, however sure he sounds: if he says he prayed with no proof, don't log it; kindly say you need to see it and offer the two options (call start_salah_mode if he's about to pray at home; ask for a masjid photo if he is there). This is what he asked for, so say it warmly, not suspiciously.
+- When he shares a photo that shows him at the masjid (with you here, or one he just uploaded in Mind & Deen) and wants it counted, call log_prayer with evidence "photo". The server checks the photo and works out which prayer is due from his Mawaqit times; tell him the result in one short line ("Asr logged, at the masjid."). If it says not verified, tell him why in a few words.
+- If he says he's about to pray at home, or "watch me pray", call start_salah_mode. During salah mode you are completely silent: no words, no sounds, nothing at all, until salah mode ends. Then you'll get a cue with the result; confirm it in one short warm line.
+- If he tells you he missed a prayer, call log_prayer with status "missed" (no proof needed to admit one). Mention streaks naturally and sparingly; never guilt-trip a missed prayer; encourage making it up (he can pray it in front of you and it logs as qada) and fixing the cause.
 - Habits: log with log_habit when he reports one; when he commits to a new daily habit, call add_habit. Keep the list short and real.
 - Private mode: if he says "Freya, stand down" (or "not now", "give me some space"), call set_private_mode with on=true and answer in two words at most, e.g. "Standing down." If he says "Freya, I'm back" or "resume", call set_private_mode with on=false. During private mode you don't start conversations or send anything except something critical.
 - Moving or travelling: if he has moved or wants a different mosque, call find_mosques (near_me=true, or a query with the area or mosque name), read back up to three options briefly, then call set_mosque with the one he picks. If he's travelling, call set_travelling with on=true, and on=false when he's home.
@@ -168,7 +172,9 @@ const LIFE_TOOLS = [
   { name: 'update_section', description: 'Send something he told you in conversation into a growth section: a metric value (e.g. weight 97), a short note, and/or his answer to one of your open questions there.', parameters: OBJ({ section: { type: 'STRING', enum: ['body', 'connections', 'mind', 'work', 'vault'] }, metric: STR('metric key or label, e.g. "weight"'), value: { type: 'NUMBER', description: 'metric value in the tracked unit' }, note: STR('short note to keep in the section'), question: STR('the open question he just answered (its text)'), answer: STR('his answer') }, ['section']) },
   { name: 'section_insights', description: "His growth sections (body, connections, mind, work, vault): status, goals, coaching plan, recent insights and tracked metrics. Use when he asks about progress in one of those areas, or to coach him with what his uploads showed.", parameters: OBJ({ section: { type: 'STRING', enum: ['body', 'connections', 'mind', 'work', 'vault'] } }, ['section']) },
   { name: 'get_prayer_times', description: "Get today's and tomorrow's prayer and jama'ah times and the next prayer.", parameters: OBJ({ day: { type: 'STRING', enum: ['today', 'tomorrow'] } }, []) },
-  { name: 'log_prayer', description: 'Log one of the five daily prayers for today.', parameters: OBJ({ prayer: { type: 'STRING', enum: ['fajr', 'dhuhr', 'asr', 'maghrib', 'isha'] }, status: { type: 'STRING', enum: ['prayed', 'jamaah', 'qada', 'missed', 'clear'] } }, ['prayer', 'status']) },
+  { name: 'log_prayer', description: 'Log one of his five daily prayers. Only with proof: evidence "photo" when he has just shared (or uploaded in Mind & Deen) a photo of himself at the masjid; evidence "camera" only during salah mode. Or status "missed" when he says he missed one. Never log on his word alone. The server verifies the proof and picks the due prayer from his Mawaqit times if you leave prayer empty.', parameters: OBJ({ prayer: { type: 'STRING', enum: ['fajr', 'dhuhr', 'asr', 'maghrib', 'isha'], description: 'Leave empty to use the prayer that is due now' }, evidence: { type: 'STRING', enum: ['photo', 'camera'] }, status: { type: 'STRING', enum: ['missed'], description: 'Only when he tells you he missed it' } }, []) },
+  { name: 'start_salah_mode', description: 'Open the live camera in salah mode so he can pray in front of you at home. You then stay completely silent and only watch until he finishes; the prayer is logged when you see it completed.', parameters: OBJ({}, []) },
+  { name: 'salah_complete', description: 'ONLY during salah mode: call once when you have watched him complete the prayer through the final sitting and tasleem (turning his head right then left). Never call it early or outside salah mode.', parameters: OBJ({ positions_seen: STR('Positions you saw, e.g. standing, ruku, sujood, sitting, tasleem') }, []) },
   { name: 'log_habit', description: 'Log a habit as done (or missed) today.', parameters: OBJ({ name: STR('Exact habit name.'), done: BOOL('true if done, false if missed') }, ['name', 'done']) },
   { name: 'add_habit', description: 'Start tracking a new daily habit he has committed to.', parameters: OBJ({ name: STR('Short habit name, e.g. "Read Quran 10 min".') }, ['name']) },
   { name: 'set_private_mode', description: 'Stand down (on) or resume (off).', parameters: OBJ({ on: BOOL('true to stand down, false to resume'), minutes: { type: 'INTEGER', description: 'How long to stay quiet, default 60.' } }, ['on']) },
@@ -208,38 +214,39 @@ const LIFE_TOOLS = [
   { name: 'enable_notifications', description: 'Show him the button to switch on phone notifications.', parameters: OBJ({ reason: STR('Short reason') }, []) }
 ];
 
+// Everything she needs at session start, fetched in parallel (was ~3s of sequential round trips).
 async function loadContext(T) {
   if (!configured()) return { memory: false };
-  const t0 = Date.now(), mark = k => { if (T) T[k] = Date.now() - t0; };
+  const t0 = Date.now(), mark = k => p => { if (T) T[k] = Date.now() - t0; return p; };
   try {
-    const [profile, memories, answers] = await Promise.all([
-      getProfile(),
+    const pP = getProfile();
+    const pLife = pP.then(p => lifeState(p)).catch(() => null).then(mark('life'));
+    const pMoney = (async () => {
+      const md = await M.load(); if (!md.accounts.length) return null;
+      const profile = await pP, money = M.analyse(md); delete money.months; delete money.recurring;
+      const [patterns, drift] = await Promise.all([PL.view(profile), profile.onboarding_status === 'complete' ? PL.driftCheck(md).catch(() => null) : null]);
+      patterns.drift = drift; return { money, patterns };
+    })().catch(() => null).then(mark('money'));
+    const pGoogle = pP.then(p => p.google_status !== 'connected' ? null : Promise.all([
+      G.getCalendar('today').catch(() => null),
+      db(`calendar_events?select=id,summary&debrief_status=eq.offered&end_at=gte.${new Date(Date.now() - 12 * 36e5).toISOString()}&end_at=lte.${new Date().toISOString()}`).catch(() => []),
+      db('meeting_notes?select=summary&order=created_at.desc&limit=3').catch(() => [])
+    ])).catch(() => null).then(mark('google'));
+    const [profile, memories, answers, life, subs, mon, phone, sections, convo, goog] = await Promise.all([
+      pP.then(mark('profile')),
       db('memories?select=category,content&order=created_at.desc&limit=60'),
-      db('onboarding_answers?select=topic,question,answer&order=created_at.asc&limit=200')
+      db('onboarding_answers?select=topic,question,answer&order=created_at.asc&limit=200'),
+      pLife,
+      db('push_subscriptions?select=endpoint').catch(() => []),
+      pMoney,
+      pP.then(p => PH.view(p)).catch(() => null).then(mark('phone')),
+      SEC.context().catch(() => null).then(mark('sections')),
+      CV.context().catch(() => null).then(mark('convo')),
+      pGoogle
     ]);
-    mark('profile_memories');
-    const [life, subs] = await Promise.all([lifeState().catch(() => null), db('push_subscriptions?select=endpoint').catch(() => [])]);
-    mark('life');
-    const ctx = { memory: true, profile, memories, answers, life, pushOn: subs.length > 0, moneyConfigured: M.configured() };
-    try { const md = await M.load(); if (md.accounts.length) { ctx.money = M.analyse(md); delete ctx.money.months; delete ctx.money.recurring;
-      ctx.patterns = await PL.view(profile); ctx.patterns.drift = profile.onboarding_status === 'complete' ? await PL.driftCheck(md).catch(() => null) : null; } } catch (e) {}
-    mark('money');
-    ctx.phone = await PH.view(profile).catch(() => null);
-    mark('phone');
-    ctx.sections = await SEC.context().catch(() => null);
-    mark('sections');
-    ctx.convo = await CV.context().catch(() => null);
-    mark('convo');
-    if (life && life.google && life.google.connected) {
-      const now = new Date().toISOString();
-      const [cal, deb, notes] = await Promise.all([
-        G.getCalendar('today').catch(() => null),
-        db(`calendar_events?select=id,summary&debrief_status=eq.offered&end_at=gte.${new Date(Date.now() - 12 * 36e5).toISOString()}&end_at=lte.${now}`).catch(() => []),
-        db('meeting_notes?select=summary&order=created_at.desc&limit=3').catch(() => [])
-      ]);
-      ctx.calendar = cal; ctx.pendingDebriefs = deb; ctx.recentNotes = notes;
-    }
-    mark('google');
+    const ctx = { memory: true, profile, memories, answers, life, pushOn: subs.length > 0, moneyConfigured: M.configured(), phone, sections, convo };
+    if (mon) { ctx.money = mon.money; ctx.patterns = mon.patterns; }
+    if (goog && life && life.google && life.google.connected) { ctx.calendar = goog[0]; ctx.pendingDebriefs = goog[1]; ctx.recentNotes = goog[2]; }
     return ctx;
   } catch (e) { return { memory: false }; }
 }
@@ -259,7 +266,8 @@ module.exports = async (req, res) => {
   ctx.mode = ctx.memory && (wanted === 'onboarding' || (wanted !== 'companion' && (status === 'not_started' || status === 'in_progress'))) ? 'onboarding' : 'companion';
   if (ctx.mode === 'onboarding' && status !== 'in_progress') { try { await setProfile('onboarding_status', 'in_progress'); } catch (e) {} }
   ctx.brief = wanted === 'brief';
-  if (ctx.mode === 'companion' && status === 'complete') { try { const t = new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/London' }); if (ctx.profile.last_companion_day !== t) { await setProfile('last_companion_day', t); await setProfile('companion_days', String((+ctx.profile.companion_days || 0) + 1)); } } catch (e) {} }
+  let side = null; // bookkeeping runs alongside the token request, not before it
+  if (ctx.mode === 'companion' && status === 'complete') { const t = new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/London' }); if (ctx.profile.last_companion_day !== t) side = Promise.all([setProfile('last_companion_day', t), setProfile('companion_days', String((+ctx.profile.companion_days || 0) + 1))]).catch(() => {}); }
   if (ctx.memory && ctx.life && ctx.life.google && ctx.life.google.connected) {
     if (ctx.brief) ctx.unread = await G.importantUnread().catch(() => null);
     if (wanted === 'debrief' && req.query.event) {
@@ -276,7 +284,7 @@ module.exports = async (req, res) => {
       body: JSON.stringify({
         uses: 1,
         expireTime: new Date(now + 30 * 60e3).toISOString(),
-        newSessionExpireTime: new Date(now + 2 * 60e3).toISOString(),
+        newSessionExpireTime: new Date(now + 10 * 60e3).toISOString(), // the app pre-fetches a token so tapping the orb connects instantly
         bidiGenerateContentSetup: {
           model: MODEL,
           generationConfig: {
@@ -297,6 +305,7 @@ module.exports = async (req, res) => {
       })
     });
     const j = await r.json();
+    if (side) await side;
     if (!r.ok || !j.name) return res.status(502).json({ error: 'Could not get a voice token' });
     return res.status(200).json({ token: j.name, model: MODEL, voice: VOICE, mode: ctx.mode, brief: !!ctx.brief && ctx.mode !== 'onboarding', debrief: ctx.mode !== 'onboarding' && ctx.debrief ? ctx.debrief.summary : null, memory: !!ctx.memory, last: ctx.convo && ctx.convo.lastSession ? { sid: ctx.convo.lastSession, at: ctx.convo.lastAt } : null });
   } catch (e) {
@@ -305,3 +314,4 @@ module.exports = async (req, res) => {
 };
 module.exports.persona = persona;
 module.exports.loadContext = loadContext;
+module.exports.LIFE_TOOLS = LIFE_TOOLS;

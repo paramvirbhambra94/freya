@@ -86,7 +86,8 @@ module.exports = async (req, res) => {
     if (!subs.length || !s.schedule) return res.status(200).json({ ok: true, google: meet, money, learn: learn && (learn.error || learn.skipped || 'ok'), skipped: !subs.length ? 'no subscriptions' : 'no schedule' });
     const now = s.schedule.now, today = s.schedule.today, manual = !!s.private.manualUntil;
     const prayerHabit = n => s.habits.find(h => h.kind === 'prayer' && h.name.toLowerCase() === n);
-    const send = async (key, msg) => { if (msg.url === '/' && /\?\s*$/.test(msg.body || '')) msg = { ...msg, url: '/?ask=' + encodeURIComponent(String(msg.body).slice(0, 300)) }; if (await claim(key)) { const n = await sendPush(msg); if (!n) await unclaim(key); else out.push(key); } };
+    const salahNow = !!s.salahMode; // praying in front of the camera: nothing may buzz him
+    const send = async (key, msg) => { if (salahNow) { out.push('held:' + key); return; } if (msg.url === '/' && /\?\s*$/.test(msg.body || '')) msg = { ...msg, url: '/?ask=' + encodeURIComponent(String(msg.body).slice(0, 300)) }; if (await claim(key)) { const n = await sendPush(msg); if (!n) await unclaim(key); else out.push(key); } };
 
     for (const [i, n] of NAMES.entries()) {
       const p = today.prayers[n], a = toMin(p.adhan), q = p.iqamah ? toMin(p.iqamah) : a + 10;
@@ -100,7 +101,7 @@ module.exports = async (req, res) => {
       }
       // Quiet check-in after the prayer window, so streaks stay honest.
       if (!s.private.on && !logged && now.min >= q + 45 && now.min < nextA) {
-        await send(`checkin:${now.date}:${n}`, { title: `${label(n)}?`, body: `Did you pray ${label(n)}? Tap to log it.`, priority: 'low', url: `/?log=${n}`, tag: 'checkin-' + n });
+        await send(`checkin:${now.date}:${n}`, { title: `${label(n)}?`, body: `Did you pray ${label(n)}? Open Freya to show me (pray with me on camera, or a masjid photo).`, priority: 'low', url: `/?log=${n}`, tag: 'checkin-' + n });
       }
     }
     // Morning brief
