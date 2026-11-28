@@ -43,6 +43,8 @@ let nextTime = 0, sources = new Set(), active = false, connecting = false, model
 let briefPending = new URLSearchParams(location.search).has('brief');
 let debriefPending = new URLSearchParams(location.search).get('debrief');
 let pendingAction = null;
+let checkinPending = new URLSearchParams(location.search).has('checkin');
+let pendingText = '', pendingCue = ''; // typed before the session was connected: sent as soon as she is ready
 // Android shell (FREYA app): native bridge for alarms + wake word. Absent in a normal browser.
 const APP = (() => { try { return !!(window.FreyaAndroid && window.FreyaAndroid.isApp()); } catch (e) { return false; } })();
 let wakePending = APP && new URLSearchParams(location.search).has('wake');
@@ -77,7 +79,7 @@ const saveConv = () => writeLS('freyaConv', conv);
 function syncQ() { const seen = new Set(), out = []; for (const t of readLS('freyaTurnQ', []).concat(turnQ)) if (!seen.has(t.cid)) { seen.add(t.cid); out.push(t); } turnQ = out; return turnQ; }
 addEventListener('storage', e => { if (e.key === 'freyaConv' && !active) conv = readLS('freyaConv', conv); });
 function pushTurn(role, text) {
-  text = String(text || '').replace(/\s+/g, ' ').trim(); if (!text || !conv.sid) return;
+  text = String(text || '').replace(/\s+/g, ' ').trim(); if (!text || !conv.sid || mode === 'guest') return; // guest chats are not his memory
   syncQ();
   turnQ.push({ sid: conv.sid, mode, cid: conv.sid + '.' + Date.now().toString(36) + '.' + (++turnN), role, text: text.slice(0, 4000), at: new Date().toISOString() });
   if (turnQ.length > 400) turnQ = turnQ.slice(-400);
@@ -226,6 +228,22 @@ function here() {
 async function handleTool(f) {
   const a = f.args || {};
   try {
+    // ---- NEURO tools ----
+    const NX = window.freyaNeuro;
+    if (f.name === 'run_futures') { const r = await post('/api/state', { action: 'neuro_futures', question: a.question || '' }); if (r.ok && NX) NX.showFutures(r); return r.ok ? JSON.stringify({ routes: (r.routes || []).map(x => ({ name: x.name, risk: x.risk, reward: x.reward, likelihood: x.likelihood, first_step: x.first_step, simulation: x.simulation })), recommended: r.recommended, why: r.why, unknowns: r.unknowns, simulated_futures: r.simulated_futures, routes_considered: r.routes_considered, shown_on_screen: !!NX }).slice(0, 6000) : 'Futures unavailable: ' + (r.error || 'error'); }
+    if (f.name === 'propose_action') {
+      const params = a.kind === 'email_send' ? { to: a.to, subject: a.subject, body: a.body } : { channel: a.channel, phone: a.phone, to_name: a.to_name, text: a.text };
+      const r = await post('/api/state', { action: 'action_propose', kind: a.kind, params, why: a.why });
+      if (r.ok && r.needs_approval && NX) { NX.approvalCard(r); return 'An approval card with the exact ' + (a.kind === 'email_send' ? 'email' : 'message') + ' is on his screen. Nothing has been sent. Tell him to check it and tap Approve or Cancel.'; }
+      return JSON.stringify(r).slice(0, 600);
+    }
+    if (f.name === 'set_mode') { const r = await post('/api/state', { action: 'neuro_mode', mode: a.mode, minutes: a.minutes }); if (r.ok && NX) NX.modeChanged(r); if (r.ok) loadLife(); return JSON.stringify(r).slice(0, 1200); }
+    if (f.name === 'start_guest_session') { if (!NX) return 'not available'; NX.confirmGuest(a.name, a.minutes); return 'A confirmation is on his screen. The guest chat starts only if he taps Allow; this conversation will then end.'; }
+    if (f.name === 'open_screen') { if (NX) NX.go(a.screen); return 'Opened ' + a.screen + '.'; }
+    if (f.name === 'life_trajectory') { const r = await getJ('/api/state?neuro=trajectory'); return JSON.stringify(r).slice(0, 5000); }
+    if (f.name === 'trainer_plan') { const r = a.make_new ? await post('/api/state', { action: 'neuro_trainer_plan', request: a.request }) : await getJ('/api/state?neuro=trainer'); if (NX) NX.refresh('physical'); return JSON.stringify(r).slice(0, 6000); }
+    if (f.name === 'log_workout') { const r = await post('/api/state', { action: 'neuro_trainer_log', focus: a.focus, done: a.done !== false, note: a.note }); if (r.ok) toast('Logged · ' + a.focus); if (NX) NX.refresh('physical'); return r.ok ? 'logged' : 'not logged'; }
+    if (f.name === 'note_observation') { const r = await post('/api/state', { action: 'neuro_observe', domain: a.domain, text: a.text, evidence: a.evidence, confidence: a.confidence }); if (r.ok) toast('Freya learned · see Vault'); return r.ok ? 'noted (he can see, edit or delete it)' : (r.error || 'not noted'); }
     if (f.name === 'recall_conversations') { const r = await post('/api/memory', { action: 'recall', query: a.query || '', days: a.days }); return r.ok ? JSON.stringify(r).slice(0, 8000) : 'memory search unavailable right now'; }
     if (f.name === 'save_to_section') { return window.freyaEyes ? await freyaEyes.saveToSection(a.section, a.note) : 'not available'; }
     if (f.name === 'section_uploads') { const r = await getJ('/api/state?sec=uploads&section=' + encodeURIComponent(a.section || '') + '&limit=' + (+a.recent || 8)); return JSON.stringify(r).slice(0, 9000); }
@@ -358,6 +376,9 @@ function checkFinish() {
 
 // ---------- session ----------
 function tokenQuery(isReconnect, handle, cont) {
+  const sp = window.freyaSpecial;
+  if (sp && sp.mode === 'guest') return '?guest=1';
+  if (sp && sp.mode === 'practice') return '?mode=practice&scenario=' + encodeURIComponent(sp.scenario || '');
   let q = forceOnboarding ? '?mode=onboarding' : (briefPending && !isReconnect ? '?mode=brief' : (debriefPending && !isReconnect ? '?mode=debrief&event=' + encodeURIComponent(debriefPending) : ''));
   if (handle) q += (q ? '&' : '?') + 'resume=' + encodeURIComponent(handle);
   else if (cont) q += (q ? '&' : '?') + 'cont=' + encodeURIComponent(cont.why) + '&ago=' + cont.ago;
@@ -369,7 +390,7 @@ let tokCache = null, tokTimer = null;
 const tokKey = q => q.replace(/&?ago=\d+/, '');
 const fetchToken = q => fetch('/api/token' + q, { method: 'POST', cache: 'no-store' }).then(async r => ({ status: r.status, ok: r.ok, j: await r.json().catch(() => ({})) }));
 function planConv() { // what start() will do with the saved thread, without changing anything
-  const c = readLS('freyaConv', conv) || {}, gap = Date.now() - (c.at || 0), special = forceOnboarding || briefPending || debriefPending || nudgePending;
+  const c = readLS('freyaConv', conv) || {}, gap = Date.now() - (c.at || 0), special = forceOnboarding || briefPending || debriefPending || nudgePending || checkinPending || window.freyaSpecial;
   if (!c.sid || gap > 30 * 60e3 || special) return { handle: null, cont: null };
   const why = c.ended && !['stopped', 'picking'].includes(c.ended) ? c.ended : null;
   return { handle: gap < 110 * 60e3 && c.handle ? c.handle : null, cont: why ? { why, ago: Math.round(gap / 60e3) } : null };
@@ -390,6 +411,12 @@ async function getToken(q) {
   return fetchToken(q);
 }
 window.freyaPrefetch = prefetchToken;
+// NEURO: start a guest chat or a speaking-practice session (ends the current one first).
+window.freyaStartSpecial = sp => { if (active) stop(undefined, 'stopped'); window.freyaSpecial = sp; document.body.classList.toggle('guest-on', sp.mode === 'guest'); document.body.classList.toggle('practice-on', sp.mode === 'practice'); setTimeout(() => start(), 150); };
+window.freyaIsActive = () => active;
+// A cue for her (not his words): sent now if she's live, else she starts and gets it first.
+window.freyaCue = text => { if (!authed) return showLock(); if (ws && ws.readyState === 1 && active) { ws.send(JSON.stringify({ realtimeInput: { text: '(Cue, not his words: ' + text + ')' } })); setBusy(true); return; } pendingCue = text; if (!active && !connecting) start(); };
+window.freyaCheckin = () => { if (active) stop(undefined, 'stopped'); checkinPending = true; setTimeout(() => start(), 150); };
 setTimeout(() => prefetchToken(0), 50);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) prefetchToken(300); else clearTimeout(tokTimer); });
 async function connect(isReconnect) {
@@ -419,9 +446,9 @@ async function connect(isReconnect) {
     const m = JSON.parse(typeof ev.data === 'string' ? ev.data : await ev.data.text());
     if (m.sessionResumptionUpdate && m.sessionResumptionUpdate.resumable !== false && m.sessionResumptionUpdate.newHandle) { resumeHandle = m.sessionResumptionUpdate.newHandle; conv.handle = resumeHandle; conv.at = Date.now(); saveConv(); }
     if (m.toolCall) {
-      setBusy(true);
+      setBusy(true); document.body.classList.add('tooling');
       const calls = m.toolCall.functionCalls || [];
-      const results = await Promise.all(calls.map(handleTool));
+      const results = await Promise.all(calls.map(handleTool)).finally(() => document.body.classList.remove('tooling'));
       if (sock.readyState === 1) sock.send(JSON.stringify({ toolResponse: { functionResponses: calls.map((f, i) => ({ id: f.id, name: f.name, response: { result: results[i] } })) } }));
     }
     const sc = m.serverContent;
@@ -439,6 +466,8 @@ async function connect(isReconnect) {
     if (m.goAway && active) refresh();
   };
   sock.onclose = e => { if (active && ws === sock) refresh(e); };
+  // NEURO: tell her which screen he is on right now (and what it shows), so 'this' / 'here' always makes sense.
+  try { const sctx = window.freyaScreenCtx && freyaScreenCtx(); if (sctx && mode !== 'guest') sock.send(JSON.stringify({ clientContent: { turns: [{ role: 'user', parts: [{ text: '(Context update, not his words: ' + sctx + ')' }] }], turnComplete: false } })); } catch (e) {}
   // Different surface/storage (e.g. PWA vs app): adopt the server's latest thread if it's recent.
   if (!isReconnect && j.last && j.last.sid && conv.fresh && Date.now() - Date.parse(j.last.at) < 30 * 60e3 && j.last.sid !== conv.sid) { conv.sid = j.last.sid; conv.fresh = false; saveConv(); }
   if (!isReconnect && contInfo && mode !== 'onboarding') {
@@ -455,11 +484,20 @@ async function connect(isReconnect) {
   } else if (j.brief) {
     briefPending = false; history.replaceState(null, '', '/');
     sock.send(JSON.stringify({ realtimeInput: { text: '(Cue: Eesah opened his morning brief. Begin it now.)' } })); setBusy(true);
+  } else if (mode === 'guest') {
+    sock.send(JSON.stringify({ realtimeInput: { text: '(Cue: Eesah has handed the phone to his guest. Greet them in one short line and say they can ask you anything general.)' } })); setBusy(true);
+  } else if (mode === 'practice') {
+    sock.send(JSON.stringify({ realtimeInput: { text: '(Cue: speaking practice started. Begin as described, in one short line.)' } })); setBusy(true);
+  } else if (checkinPending) {
+    checkinPending = false; history.replaceState(null, '', '/');
+    sock.send(JSON.stringify({ realtimeInput: { text: '(Cue: Eesah opened his evening check-in. In a soft, short way ask about his energy, mood, one win and what is on his mind, one question at a time. Listen more than you talk. If learning is on and something is clearly supported by what he says, note it with note_observation.)' } })); setBusy(true);
   } else if (nudgePending) {
     const t = nudgePending; nudgePending = '';
     sock.send(JSON.stringify({ realtimeInput: { text: '(Cue: spoken nudge from his phone, not his words: "' + t.replace(/["()]/g, '') + '". Say it to him now in one short, warm, light line in your own words, no lecture, then stop and wait. If he says not now or that it is work, accept it in a few words.)' } })); setBusy(true);
   }
   retries = 0; contInfo = null;
+  if (pendingCue && !isReconnect) { const c = pendingCue; pendingCue = ''; sock.send(JSON.stringify({ realtimeInput: { text: '(Cue, not his words: ' + c + ')' } })); setBusy(true); }
+  if (pendingText && !isReconnect) { const t = pendingText; pendingText = ''; sock.send(JSON.stringify({ realtimeInput: { text: t } })); pushTurn('user', t); caption(himEl, t, false, 7000); setBusy(true); }
 }
 async function refresh(e) {
   if (!active || connecting) return;
@@ -531,7 +569,8 @@ async function start() {
 function stop(msg, reason) {
   if (window.freyaEyes) freyaEyes.close('session');
   if (active) { endConv(reason || 'dropped', document.hidden); if (lastHerQ && Date.now() - lastHerQ.at < 15 * 60e3) writeLS('freyaOpenQ', lastHerQ); lastHerQ = null; } // keepalive: the page may be going away
-  active = false; setBusy(false);
+  active = false; setBusy(false); document.body.classList.remove('tooling');
+  if (window.freyaSpecial) { window.freyaSpecial = null; document.body.classList.remove('guest-on', 'practice-on'); if (window.freyaNeuro) freyaNeuro.specialEnded(); }
   if (APP) try { FreyaAndroid.sessionActive(false); } catch (e) {}
   const s = ws; ws = null; try { s && s.close(1000); } catch (e) {}
   try { micNode && micNode.disconnect(); } catch (e) {} micNode = null;
@@ -572,7 +611,8 @@ orb.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') {
   orb.parentElement.addEventListener('click', e => { if (dragged) { dragged = false; e.stopPropagation(); } }, true);
 })();
 $('textbar').addEventListener('submit', e => {
-  e.preventDefault(); const t = $('textin').value.trim(); if (!t || !ws || ws.readyState !== 1) return;
+  e.preventDefault(); const t = $('textin').value.trim(); if (!t) return;
+  if (!ws || ws.readyState !== 1) { if (!authed) return showLock(); pendingText = t; $('textin').value = ''; if (!active && !connecting) start(); return; }
   ws.send(JSON.stringify({ realtimeInput: { text: t } })); flushHim(); pushTurn('user', t); lastHerQ = null; caption(himEl, t, false, 7000); newHimTurn = true; $('textin').value = ''; setBusy(true);
 });
 // Leaving the app pauses her (camera first, instantly). Coming back picks the same conversation up where it was.

@@ -11,7 +11,7 @@
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
-<link rel="stylesheet" href="/style.css?v=neuro04">
+<link rel="stylesheet" href="/style.css?v=neuro21">
 </head>
 <body>
 <div id="splash" aria-hidden="true"><img src="/mark.svg" width="100" height="100" alt=""><p>NEURO</p></div><script>(function(){var s=document.getElementById("splash");setTimeout(function(){s.remove()},650)})();</script>
@@ -39,7 +39,15 @@
   </div>
   <div id="eyes" hidden><button id="eye" aria-label="Show Freya something"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8.5h3l1.6-2.3h6.8L17 8.5h3v10H4z"/><circle cx="12" cy="13.2" r="3.4"/><path d="M17.6 11h.01"/></svg></button></div>
   <nav id="tiles" hidden aria-label="Your spaces"></nav>
-<div class="neuro-panel" hidden><small>YOUR INTELLIGENCE</small><p>Speak to Freya or explore your spaces.</p><div class="neuro-actions"><button type="button" id="neuro-talk">Talk</button><button type="button" id="neuro-type">Type</button><button type="button" id="neuro-history">History</button></div></div><section id="n-dashboard"><div id="n-nexus"><div class="nx-command"><button id="nx-voice" type="button"><span>◉</span> Speak to Freya</button><button id="nx-text" type="button" aria-label="Type to Freya">⌨</button></div><div class="nx-heading"><span>01 / YOUR DAY</span><button id="n-plan">Review with Freya ↗</button></div></div><div id="nx-spaces"><div class="n-section-title"><h2>Your spaces</h2><span>Explore</span></div><div class="n-grid"><button data-space="body"><i>＋</i><strong>Physical</strong><small>Health &amp; recovery</small></button><button data-space="finance"><i>£</i><strong>Finance</strong><small>Money &amp; planning</small></button><button data-space="mind"><i>◈</i><strong>Mind</strong><small>Growth &amp; wellbeing</small></button><button data-space="connections"><i>◎</i><strong>Connect</strong><small>Relationships</small></button><button data-space="work"><i>▤</i><strong>Work</strong><small>Projects &amp; ambition</small></button><button data-space="vault"><i>◇</i><strong>Vault</strong><small>Records &amp; insights</small></button></div></div></section><section id="n-preferences" hidden><h2>Settings</h2><article class="n-card"><strong>Islamic Mode</strong><p>Choose whether Islamic guidance is included in your personal experience.</p><label><input type="checkbox" id="n-islamic" disabled> Enable Islamic guidance</label><p id="n-islamic-status" role="status">Checking preference…</p></article><article class="n-card"><strong>Personal discovery</strong><p>Talk freely about your priorities, challenges and goals.</p><button id="n-discover">Talk with Freya</button></article><article class="n-card"><strong>Device controls</strong><p>Manage microphone, wake phrase and native permissions in the installed app.</p><button id="n-native">Android settings</button></article><article class="n-card"><strong>Intelligence capabilities</strong><p>Ambient awareness, Sleep Focus and autonomous actions are not enabled in this build.</p></article></section></main><nav id="n-nav" aria-label="Main navigation"><button data-page="home">⌂<span>Home</span></button><button data-page="chat">◉<span>Freya</span></button><button data-page="life">▦<span>Life</span></button><button data-page="settings">⚙<span>Settings</span></button></nav><script src="/neuro-shell.js?v=07" defer></script>
+<div id="nx-modebar" role="group" aria-label="Mode"></div>
+  <div class="nx-command" id="nx-command"><button id="nx-voice" type="button"><span aria-hidden="true">◉</span> Speak to Freya</button><button id="nx-text" type="button" aria-label="Type to Freya">⌨</button></div>
+  <div id="nx-root"></div>
+</main>
+<nav id="n-nav" aria-label="Main navigation"><button data-page="home"><b aria-hidden="true">⌂</b><span>Home</span></button><button data-page="chat"><b aria-hidden="true">◉</b><span>Freya</span></button><button data-page="life"><b aria-hidden="true">▦</b><span>Life</span></button><button data-page="vault"><b aria-hidden="true">◇</b><span>Vault</span></button><button data-page="settings"><b aria-hidden="true">⚙</b><span>Settings</span></button></nav>
+<section id="nx-sheet" hidden aria-modal="true" role="dialog"><div class="nx-sheet-in"><div class="nx-sheet-head"><button id="nx-sheet-back" class="link" aria-label="Back">‹ Back</button><strong id="nx-sheet-title"></strong><span></span></div><div id="nx-sheet-body"></div></div></section>
+<div id="nx-listen" hidden role="status"><i></i><span id="nx-listen-t">Sleep Focus listening</span><button id="nx-listen-stop">Stop</button></div>
+<div id="nx-guestbar" hidden role="status"><span id="nx-guest-t">Guest chat</span><button id="nx-guest-end">End</button></div>
+<script src="/neuro-shell.js?v=21" defer></script>
 <form id="textbar" hidden autocomplete="off"><input id="textin" placeholder="Type to Freya…" enterkeyhint="send"><button>Send</button></form>
 <div id="toast" aria-live="polite"></div>
 <button id="redo" hidden>Redo setup</button>
@@ -109,5 +117,5 @@
 <script src="/app.js"></script>
 <script src="/sections.js"></script>
 <script src="/eyes.js"></script>
-<script src="/freya-entity.js?v=06" defer></script></body>
+<script src="/freya-entity.js?v=07" defer></script></body>
 </html>
