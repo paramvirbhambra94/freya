@@ -1,38 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<animated-vector xmlns:android="http://schemas.android.com/apk/res/android" xmlns:aapt="http://schemas.android.com/aapt">
-  <aapt:attr name="android:drawable">
-    <vector android:width="288dp" android:height="288dp" android:viewportWidth="512" android:viewportHeight="512">
-      <group android:name="mark" android:pivotX="256" android:pivotY="256" android:scaleX=".86" android:scaleY=".86">
-        <group android:name="spin" android:pivotX="256" android:pivotY="256" android:rotation="-90">
-          <path android:name="ring" android:pathData="M256,80A176,176 0 1 1 256,432A176,176 0 1 1 256,80" android:strokeColor="#FFE8B45A" android:strokeWidth="2.5" android:trimPathEnd="0"/>
-          <path android:name="bold" android:pathData="M359.45,113.61A176,176 0 0 1 403.61,160.14M398.39,359.45A176,176 0 0 1 351.86,403.61M152.55,398.39A176,176 0 0 1 108.39,351.86M113.61,152.55A176,176 0 0 1 160.14,108.39" android:strokeColor="#FFE8B45A" android:strokeWidth="4.5" android:strokeAlpha="0"/>
-          <path android:name="inner" android:pathData="M344.78,119.3A163,163 0 0 1 397.16,174.5M319.69,105.96A163,163 0 0 1 328.73,110.13M405.48,191A163,163 0 0 1 409.17,200.25M392.7,344.78A163,163 0 0 1 337.5,397.16M406.04,319.69A163,163 0 0 1 401.87,328.73M321,405.48A163,163 0 0 1 311.75,409.17M167.22,392.7A163,163 0 0 1 114.84,337.5M192.31,406.04A163,163 0 0 1 183.27,401.87M106.52,321A163,163 0 0 1 102.83,311.75M119.3,167.22A163,163 0 0 1 174.5,114.84M105.96,192.31A163,163 0 0 1 110.13,183.27M191,106.52A163,163 0 0 1 200.25,102.83" android:strokeColor="#FFE8B45A" android:strokeWidth="1.6" android:strokeAlpha="0"/>
-        </group>
-        <path android:name="ticks" android:pathData="M256,96L256,66M416,256L446,256M256,416L256,446M96,256L66,256" android:strokeColor="#FFE8B45A" android:strokeWidth="5" android:strokeAlpha="0"/>
-        <path android:name="f" android:pathData="M208.5,177.5L337.5,177.5L308.5,206.5L229,206.5L218.5,217L218.5,242.5L306,242.5L277.5,271.5L229,271.5L218.5,282L218.5,327.5L185,364.5L185,199Z" android:strokeColor="#FFFFD98F" android:strokeWidth="3" android:strokeLineJoin="miter" android:fillColor="#1AE8B45A" android:trimPathEnd="0"/>
-        <path android:name="glare" android:pathData="M120,256L390,256" android:strokeColor="#FFFFF3D6" android:strokeWidth="1.4" android:strokeAlpha="0"/>
-      </group>
-    </vector>
-  </aapt:attr>
-  <target android:name="ring"><aapt:attr name="android:animation">
-    <objectAnimator android:propertyName="trimPathEnd" android:valueFrom="0" android:valueTo="1" android:valueType="floatType" android:duration="650" android:startOffset="0" android:interpolator="@android:interpolator/fast_out_slow_in"/>
-  </aapt:attr></target>
-  <target android:name="spin"><aapt:attr name="android:animation">
-    <objectAnimator android:propertyName="rotation" android:valueFrom="-90" android:valueTo="0" android:valueType="floatType" android:duration="900" android:startOffset="0" android:interpolator="@android:interpolator/fast_out_slow_in"/>
-  </aapt:attr></target>
-  <target android:name="bold"><aapt:attr name="android:animation">
-    <objectAnimator android:propertyName="strokeAlpha" android:valueFrom="0" android:valueTo="1" android:valueType="floatType" android:duration="300" android:startOffset="450" android:interpolator="@android:interpolator/fast_out_slow_in"/>
-  </aapt:attr></target>
-  <target android:name="inner"><aapt:attr name="android:animation">
-    <objectAnimator android:propertyName="strokeAlpha" android:valueFrom="0" android:valueTo="0.75" android:valueType="floatType" android:duration="300" android:startOffset="550" android:interpolator="@android:interpolator/fast_out_slow_in"/>
-  </aapt:attr></target>
-  <target android:name="ticks"><aapt:attr name="android:animation">
-    <objectAnimator android:propertyName="strokeAlpha" android:valueFrom="0" android:valueTo="1" android:valueType="floatType" android:duration="250" android:startOffset="350" android:interpolator="@android:interpolator/fast_out_slow_in"/>
-  </aapt:attr></target>
-  <target android:name="f"><aapt:attr name="android:animation">
-    <objectAnimator android:propertyName="trimPathEnd" android:valueFrom="0" android:valueTo="1" android:valueType="floatType" android:duration="600" android:startOffset="200" android:interpolator="@android:interpolator/fast_out_slow_in"/>
-  </aapt:attr></target>
-  <target android:name="glare"><aapt:attr name="android:animation">
-    <objectAnimator android:propertyName="strokeAlpha" android:valueFrom="0" android:valueTo="0.9" android:valueType="floatType" android:duration="250" android:startOffset="700" android:interpolator="@android:interpolator/fast_out_slow_in"/>
-  </aapt:attr></target>
-</animated-vector>
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="288dp" android:height="288dp" android:viewportWidth="512" android:viewportHeight="512">
+  <group android:pivotX="251" android:pivotY="256" android:scaleX="0.62" android:scaleY="0.62" android:translateX="5">
+    <path android:pathData="M118,331V181L228,331V181" android:strokeColor="#FFE6EDF3" android:strokeWidth="19" android:strokeLineJoin="bevel"/>
+    <path android:pathData="M261,181h94a3,3 0 0 1 3,3v15a3,3 0 0 1 -3,3h-94a3,3 0 0 1 -3,-3v-15a3,3 0 0 1 3,-3zM261,245.5h94a3,3 0 0 1 3,3v15a3,3 0 0 1 -3,3h-94a3,3 0 0 1 -3,-3v-15a3,3 0 0 1 3,-3zM261,310h94a3,3 0 0 1 3,3v15a3,3 0 0 1 -3,3h-94a3,3 0 0 1 -3,-3v-15a3,3 0 0 1 3,-3zM370,320a12,12 0 1 0 24,0a12,12 0 1 0 -24,0z" android:fillColor="#FF3EE6F0"/>
+  </group>
+</vector>

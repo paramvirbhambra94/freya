@@ -1,8 +1,8 @@
 {
   "id": "/",
-  "name": "Neuro — Freya",
+  "name": "Neuro · Powered by Freya",
   "short_name": "Neuro",
-  "description": "Functional Response Engine for Your Assistance",
+  "description": "Neuro: your personal intelligence, powered by Freya.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

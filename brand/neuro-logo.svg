@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 300" role="img" aria-label="NEURO. Powered by FREYA">
+  <defs>
+    <linearGradient id="nsil" x1="0" y1="100" x2="0" y2="196" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#FFFFFF"/><stop offset=".55" stop-color="#D9E1E8"/><stop offset="1" stop-color="#9AA6B2"/></linearGradient>
+    <filter id="nglow" x="-30%" y="-80%" width="160%" height="260%"><feGaussianBlur stdDeviation="6" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  </defs>
+  <g fill="none" stroke="url(#nsil)" stroke-width="11" stroke-linejoin="miter">
+    <path d="M136 192V104L240 192V104" stroke-linejoin="bevel"/>
+    <path d="M462 104V146A47 46 0 0 0 556 146V104"/>
+    <path d="M616 192V109H694A26 26 0 0 1 694 161H621M686 161L736 192"/>
+    <rect x="774" y="109.5" width="110" height="77" rx="38"/>
+  </g>
+  <g fill="#3EE6F0" filter="url(#nglow)"><rect x="296" y="103" width="114" height="12" rx="2"/><rect x="296" y="142" width="114" height="12" rx="2"/><rect x="296" y="181" width="114" height="12" rx="2"/><circle cx="905" cy="181" r="8.5"/></g>
+  <g stroke="#A4B7C9" stroke-width="2"><path d="M136 236H232M792 236H888"/></g>
+  <text x="512" y="245.5" text-anchor="middle" font-family="Montserrat,Roboto,'Segoe UI',Arial,sans-serif" font-size="27" font-weight="500" letter-spacing="11.5" fill="#F2F6FA">POWERED BY <tspan fill="#3EE6F0" font-weight="600">FREYA</tspan></text>
+</svg>

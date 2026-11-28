@@ -64,8 +64,8 @@ object Overlay {
                 orientation = LinearLayout.VERTICAL
                 val pad = dp(c, 10); setPadding(pad, pad, pad, pad)
                 background = GradientDrawable().apply {
-                    setColor(Color.parseColor("#F20B0805")); cornerRadius = dp(c, 24).toFloat()
-                    setStroke(dp(c, 1), Color.parseColor("#59E8B45A"))
+                    setColor(Color.parseColor("#F2080D17")); cornerRadius = dp(c, 20).toFloat()
+                    setStroke(dp(c, 1), Color.parseColor("#6637D6CF"))
                 }
                 elevation = dp(c, 12).toFloat()
             }
@@ -103,13 +103,13 @@ object Overlay {
             panel.addView(w)
             val row = LinearLayout(c).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.END }
             fun btn(t: String, go: () -> Unit) = Button(c).apply {
-                text = t; isAllCaps = false; textSize = 14f; setTextColor(Color.parseColor("#E8B45A"))
-                background = GradientDrawable().apply { setColor(Color.parseColor("#2A1C0C")); cornerRadius = dp(c, 18).toFloat() }
+                text = t; isAllCaps = false; textSize = 14f; setTextColor(Color.parseColor("#D8E7F3")); typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
+                background = GradientDrawable().apply { setColor(Color.parseColor("#172C2D")); setStroke(dp(c, 1), Color.parseColor("#5537D6CF")); cornerRadius = dp(c, 12).toFloat() }
                 setOnClickListener { go() }
                 layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(c, 40)).apply { marginStart = dp(c, 8) }
                 setPadding(dp(c, 16), 0, dp(c, 16), 0)
             }
-            row.addView(btn("Open FREYA") {
+            row.addView(btn("Open Neuro") {
                 close()
                 c.startActivity(Intent(c, MainActivity::class.java).setAction(MainActivity.ACTION_TALK).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             })

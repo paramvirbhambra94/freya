@@ -5,7 +5,7 @@ import android.content.Intent
 import android.os.Build
 import android.service.quicksettings.TileService
 
-/** Quick Settings tile: "Talk to FREYA". */
+/** Quick Settings tile: "Talk to Freya". */
 class TalkTile : TileService() {
     @android.annotation.SuppressLint("StartActivityAndCollapseDeprecated")
     @Suppress("DEPRECATION")

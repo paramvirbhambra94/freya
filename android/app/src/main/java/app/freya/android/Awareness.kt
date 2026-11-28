@@ -380,7 +380,7 @@ object Nudger {
         fun act(code: Int, a: String) = PendingIntent.getBroadcast(c, 500 + code,
             Intent(c, NudgeActionReceiver::class.java).setAction(a).putExtra("rule", rule).putExtra("app", app), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         val open = PendingIntent.getActivity(c, 499, Intent(c, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
-        val b = Notification.Builder(c, Channels.NUDGE).setSmallIcon(R.drawable.ic_stat).setContentTitle("FREYA")
+        val b = Notification.Builder(c, Channels.NUDGE).setSmallIcon(R.drawable.ic_stat).setContentTitle("Freya")
             .setContentText(text).setStyle(Notification.BigTextStyle().bigText(text)).setContentIntent(open).setAutoCancel(true)
             .addAction(Notification.Action.Builder(null, "Snooze 1h", act(1, NudgeActionReceiver.SNOOZE)).build())
             .addAction(Notification.Action.Builder(null, "Not now", act(2, NudgeActionReceiver.NOT_NOW)).build())

@@ -1,5 +1,5 @@
-const C='freya-v15';
-self.addEventListener('install',e=>{e.waitUntil(caches.open(C).then(c=>c.addAll(['/','/app.js','/sections.js', '/eyes.js','/neuro-shell.js','/freya-entity.js','/style.css','/manifest.webmanifest','/icon-192.png','/icon-512.png','/mark.svg','/icon.svg'])));self.skipWaiting()});
+const C='freya-v16';
+self.addEventListener('install',e=>{e.waitUntil(caches.open(C).then(c=>c.addAll(['/','/app.js','/sections.js', '/eyes.js','/neuro-shell.js','/freya-entity.js','/style.css','/manifest.webmanifest','/icon-192.png','/icon-512.png','/mark.svg','/icon.svg','/brand/neuro-logo.svg','/brand/neuro-wordmark.svg'])));self.skipWaiting()});
 self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(ks=>Promise.all(ks.filter(k=>k!==C&&k!=='freya-flags').map(k=>caches.delete(k)))).then(()=>self.clients.claim())));
 self.addEventListener('fetch',e=>{
   const u=new URL(e.request.url);
@@ -9,7 +9,7 @@ self.addEventListener('fetch',e=>{
 
 // Push notifications: Critical = loud & sticky, High = normal, Low = silent.
 self.addEventListener('push',e=>{
-  let d={};try{d=e.data.json()}catch(x){d={title:'F.R.E.Y.A.',body:e.data?e.data.text():''}}
+  let d={};try{d=e.data.json()}catch(x){d={title:'Neuro',body:e.data?e.data.text():''}}
   const pr=d.priority||'high';
   const opts={body:d.body||'',icon:'/icon-192.png',badge:'/icon-192.png',tag:d.tag||pr,data:{url:d.url||'/'},renotify:pr!=='low'};
   if(pr==='critical'){opts.requireInteraction=true;opts.vibrate=[500,200,500,200,800];}

@@ -61,7 +61,7 @@ class AlarmService : Service() {
         val n = Notification.Builder(this, Channels.ALARM)
             .setSmallIcon(R.drawable.ic_stat)
             .setContentTitle("⏰ " + label)
-            .setContentText("FREYA alarm")
+            .setContentText("Neuro alarm")
             .setCategory(Notification.CATEGORY_ALARM)
             .setVisibility(Notification.VISIBILITY_PUBLIC)
             .setOngoing(true)

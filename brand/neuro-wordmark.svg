@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="128 96 790 104" role="img" aria-label="NEURO.">
+  <defs>
+    <linearGradient id="wsil" x1="0" y1="100" x2="0" y2="196" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#FFFFFF"/><stop offset=".55" stop-color="#D9E1E8"/><stop offset="1" stop-color="#9AA6B2"/></linearGradient>
+  </defs>
+  <g fill="none" stroke="url(#wsil)" stroke-width="12" stroke-linejoin="miter">
+    <path d="M136 192V104L240 192V104" stroke-linejoin="bevel"/>
+    <path d="M462 104V146A47 46 0 0 0 556 146V104"/>
+    <path d="M616 192V109H694A26 26 0 0 1 694 161H621M686 161L736 192"/>
+    <rect x="774" y="109.5" width="110" height="77" rx="38"/>
+  </g>
+  <g fill="#3EE6F0"><rect x="296" y="103" width="114" height="13" rx="2"/><rect x="296" y="141.5" width="114" height="13" rx="2"/><rect x="296" y="180" width="114" height="13" rx="2"/><circle cx="905" cy="181" r="9"/></g>
+</svg>

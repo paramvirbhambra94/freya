@@ -52,7 +52,7 @@
       </intent-filter>
       <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts"/>
     </activity>
-    <activity android:name=".SettingsActivity" android:exported="false" android:label="FREYA settings"/>
+    <activity android:name=".SettingsActivity" android:exported="false" android:label="Neuro settings"/>
     <activity android:name=".AlarmActivity"
         android:exported="false"
         android:directBootAware="true"
@@ -69,7 +69,7 @@
     <service android:name=".WakeWordService" android:exported="false" android:foregroundServiceType="microphone"/>
     <service android:name=".AlarmService" android:exported="false" android:directBootAware="true" android:foregroundServiceType="mediaPlayback"/>
 
-    <service android:name=".FreyaNotifListener" android:exported="true" android:label="FREYA notification counts"
+    <service android:name=".FreyaNotifListener" android:exported="true" android:label="Neuro notification counts"
         android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
       <intent-filter><action android:name="android.service.notification.NotificationListenerService"/></intent-filter>
     </service>

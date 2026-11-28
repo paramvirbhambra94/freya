@@ -80,7 +80,12 @@ async function aiCategorise(items) {
 }
 
 // ---------- Sync ----------
-async function sync({ force = false } = {}) {
+// Records the stage and any error (message only, never keys) so a stalled bank feed is visible instead of silent.
+async function sync(opts) {
+  try { const r = await syncInner(opts); if (r && !r.skipped) await setProfile('money_last_error', ''); return r; }
+  catch (e) { try { await setProfile('money_last_error', JSON.stringify({ at: new Date().toISOString(), error: String(e && e.message || e).slice(0, 160) })); } catch (x) {} throw e; }
+}
+async function syncInner({ force = false } = {}) {
   if (!configured()) return { skipped: 'no key' };
   const prof = await getProfile();
   const last = prof.money_last_sync ? new Date(prof.money_last_sync) : null;
@@ -95,8 +100,10 @@ async function sync({ force = false } = {}) {
   const rows = [];
   // Consent clock: starts when we first see a connection. If it's still working past ~90 days, he has renewed it, so restart the clock.
   const sinceFor = (a, bal) => { const s = connSince[a.connection_id] || (known[a.id] && known[a.id].connection_since); if (!s) return new Date().toISOString(); return a.status === 'ACTIVE' && bal && Date.now() - new Date(s) > (CONSENT_DAYS + 2) * 864e5 ? new Date().toISOString() : s; };
-  for (const a of accounts) {
-    let bal = null; try { bal = (await lf(`/accounts/${a.id}/balance`)).balance; } catch (e) {}
+  // Balances in parallel (the cron has a 60 s budget; sequential calls were timing out before transactions were stored).
+  const bals = await Promise.all(accounts.map(a => lf(`/accounts/${a.id}/balance`).then(j => j.balance).catch(() => null)));
+  for (const [ai, a] of accounts.entries()) {
+    const bal = bals[ai];
     const raw = (a.raw && Object.values(a.raw)[0]) || {};
     rows.push({ id: a.id, connection_id: a.connection_id, name: a.name, institution: a.institution_name, provider: a.provider, status: a.status, account_type: raw.cashAccountType || null,
       balance: bal ? bal.amount : null, currency: (bal && bal.currency) || raw.currency || 'GBP', balance_at: bal ? new Date().toISOString() : null,
@@ -115,10 +122,14 @@ async function sync({ force = false } = {}) {
 
   const learned = Object.fromEntries((await all('merchant_rules?select=merchant_key,category')).map(r => [r.merchant_key, r.category]));
   let txs = [];
-  for (const a of accounts) {
+  await setProfile('money_sync_stage', 'transactions');
+  const fetched = await Promise.all(accounts.map(async a => {
     const latest = (await db(`bank_transactions?select=date&account_id=eq.${a.id}&order=date.desc&limit=1`))[0];
     const from = latest && !backfill ? day(latest.date, -10) : day(today, -730);
-    let j; try { j = await lf(`/accounts/${a.id}/transactions?include_raw=true&from=${from}`); } catch (e) { out.tx_error = true; continue; }
+    try { return [a, await lf(`/accounts/${a.id}/transactions?include_raw=true&from=${from}`)]; } catch (e) { out.tx_error = true; return [a, null]; }
+  }));
+  for (const [a, j] of fetched) {
+    if (!j) continue;
     for (const t of j.transactions || []) {
       if (t.isPending) continue;
       const raw = (t.raw && Object.values(t.raw)[0]) || {};
@@ -135,7 +146,9 @@ async function sync({ force = false } = {}) {
   const unknown = {};
   for (const t of txs) { const [c, s] = ruleCat(t, learned); t.category = c; t.cat_source = s; if (!c) { const k = mkey(t); (unknown[k] = unknown[k] || { key: k, sample: (t.merchant || t.description).slice(0, 60), amount: t.amount }); } }
   const keys = Object.values(unknown);
-  for (let i = 0; i < keys.length && i < 400; i += 100) {
+  await setProfile('money_sync_stage', 'categorise');
+  const t0 = Date.now();
+  for (let i = 0; i < keys.length && i < 400 && Date.now() - t0 < 20000; i += 100) {
     const got = await aiCategorise(keys.slice(i, i + 100));
     const ups = Object.entries(got).map(([merchant_key, category]) => ({ merchant_key, category, source: 'ai', updated_at: new Date().toISOString() }));
     if (ups.length) await db('merchant_rules?on_conflict=merchant_key', { method: 'POST', prefer: 'resolution=merge-duplicates', body: ups });
@@ -147,6 +160,7 @@ async function sync({ force = false } = {}) {
   if (backfill && !out.tx_error) await setProfile('money_ts_backfill', '1');
   await setProfile('money_last_sync', new Date().toISOString());
   await setProfile('money_last_result', JSON.stringify(out));
+  await setProfile('money_sync_stage', 'done');
   return out;
 }
 

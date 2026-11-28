@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-  <string name="app_name">FREYA</string>
-  <string name="talk">Talk to FREYA</string>
-  <color name="bg">#0B0805</color>
-  <color name="gold">#E8B45A</color>
+  <string name="app_name">Neuro</string>
+  <string name="talk">Talk to Freya</string>
+  <color name="bg">#080D17</color>
+  <color name="gold">#37D6CF</color>
   <style name="Theme.Freya" parent="@android:style/Theme.DeviceDefault.NoActionBar">
     <item name="android:windowBackground">@color/bg</item>
     <item name="android:colorBackground">@color/bg</item>
@@ -11,10 +11,10 @@
     <item name="android:statusBarColor">@color/bg</item>
     <item name="android:navigationBarColor">@color/bg</item>
     <item name="android:windowLightStatusBar">false</item>
-    <!-- Android 12+ splash: the HUD ring draws itself in around the F -->
+    <!-- Android 12+ splash: Neuro mark -->
     <item name="android:windowSplashScreenBackground">@color/bg</item>
     <item name="android:windowSplashScreenAnimatedIcon">@drawable/splash_anim</item>
-    <item name="android:windowSplashScreenAnimationDuration">1000</item>
+    <item name="android:windowSplashScreenAnimationDuration">400</item>
   </style>
   <string name="asset_statements" translatable="false">[{\"include\": \"https://freya-black.vercel.app/.well-known/assetlinks.json\"}]</string>
 </resources>

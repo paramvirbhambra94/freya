@@ -6,22 +6,22 @@
 <meta name="theme-color" content="#080D17">
 <meta name="color-scheme" content="dark">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<title>NEURO · Freya</title>
+<title>Neuro · Powered by Freya</title>
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
-<link rel="stylesheet" href="/style.css?v=neuro21">
+<link rel="stylesheet" href="/style.css?v=neuro31">
 </head>
 <body>
-<div id="splash" aria-hidden="true"><img src="/mark.svg" width="100" height="100" alt=""><p>NEURO</p></div><script>(function(){var s=document.getElementById("splash");setTimeout(function(){s.remove()},650)})();</script>
+<div id="splash" aria-hidden="true"><img src="/brand/neuro-logo.svg" width="280" height="84" alt=""></div><script>(function(){var s=document.getElementById("splash");setTimeout(function(){s.remove()},650)})();</script>
 <canvas id="bg" aria-hidden="true"></canvas>
 <header id="top" hidden><div id="next"></div></header>
-<main><header class="nhead"><div><small>PERSONAL OPERATING SYSTEM</small><strong>neuro<span>.</span></strong></div><button id="n-settings" aria-label="Settings">⚙</button></header><div id="n-home"><p class="n-eyebrow" id="n-date"></p><h2 id="n-greeting"></h2><p class="n-muted">Your personal intelligence.</p></div>
+<main><header class="nhead" id="appbar"><a class="nx-brand" href="/?page=home" aria-label="Neuro home"><img src="/brand/neuro-wordmark.svg" alt="NEURO." width="120" height="16"><small>POWERED BY <b>FREYA</b></small></a><div class="nx-actions" id="nx-actions"><button id="n-settings" class="nx-icon" aria-label="Settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4z"/><path d="M19.4 13.5a7.6 7.6 0 0 0 0-3l2-1.6-2-3.4-2.4 1a7.4 7.4 0 0 0-2.6-1.5L14 2.5h-4l-.4 2.5A7.4 7.4 0 0 0 7 6.5l-2.4-1-2 3.4 2 1.6a7.6 7.6 0 0 0 0 3l-2 1.6 2 3.4 2.4-1a7.4 7.4 0 0 0 2.6 1.5l.4 2.5h4l.4-2.5a7.4 7.4 0 0 0 2.6-1.5l2.4 1 2-3.4z"/></svg></button></div></header><div id="n-home"><p class="n-eyebrow" id="n-date"></p><h2 id="n-greeting" hidden></h2><p class="n-muted">Your personal intelligence.</p></div>
   <div class="stage">
     <div id="rings" aria-hidden="true"></div>
     <div class="work" aria-hidden="true"><i></i></div>
-    <div class="orb" id="orb" role="button" tabindex="0" aria-label="Talk to FREYA" data-state="idle">
+    <div class="orb" id="orb" role="button" tabindex="0" aria-label="Talk to Freya" data-state="idle">
       <div class="hud"><canvas id="freya-entity" aria-hidden="true" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none"></canvas>
         <div class="halo"></div>
         <div class="lyr l-inner"><svg viewBox="0 0 512 512"><path d="M344.78,119.3A163,163 0 0 1 397.16,174.5M319.69,105.96A163,163 0 0 1 328.73,110.13M405.48,191A163,163 0 0 1 409.17,200.25M392.7,344.78A163,163 0 0 1 337.5,397.16M406.04,319.69A163,163 0 0 1 401.87,328.73M321,405.48A163,163 0 0 1 311.75,409.17M167.22,392.7A163,163 0 0 1 114.84,337.5M192.31,406.04A163,163 0 0 1 183.27,401.87M106.52,321A163,163 0 0 1 102.83,311.75M119.3,167.22A163,163 0 0 1 174.5,114.84M105.96,192.31A163,163 0 0 1 110.13,183.27M191,106.52A163,163 0 0 1 200.25,102.83"/></svg></div>
@@ -41,13 +41,14 @@
   <nav id="tiles" hidden aria-label="Your spaces"></nav>
 <div id="nx-modebar" role="group" aria-label="Mode"></div>
   <div class="nx-command" id="nx-command"><button id="nx-voice" type="button"><span aria-hidden="true">◉</span> Speak to Freya</button><button id="nx-text" type="button" aria-label="Type to Freya">⌨</button></div>
+  <div id="nx-prompts"></div>
   <div id="nx-root"></div>
 </main>
 <nav id="n-nav" aria-label="Main navigation"><button data-page="home"><b aria-hidden="true">⌂</b><span>Home</span></button><button data-page="chat"><b aria-hidden="true">◉</b><span>Freya</span></button><button data-page="life"><b aria-hidden="true">▦</b><span>Life</span></button><button data-page="vault"><b aria-hidden="true">◇</b><span>Vault</span></button><button data-page="settings"><b aria-hidden="true">⚙</b><span>Settings</span></button></nav>
 <section id="nx-sheet" hidden aria-modal="true" role="dialog"><div class="nx-sheet-in"><div class="nx-sheet-head"><button id="nx-sheet-back" class="link" aria-label="Back">‹ Back</button><strong id="nx-sheet-title"></strong><span></span></div><div id="nx-sheet-body"></div></div></section>
 <div id="nx-listen" hidden role="status"><i></i><span id="nx-listen-t">Sleep Focus listening</span><button id="nx-listen-stop">Stop</button></div>
 <div id="nx-guestbar" hidden role="status"><span id="nx-guest-t">Guest chat</span><button id="nx-guest-end">End</button></div>
-<script src="/neuro-shell.js?v=21" defer></script>
+<script src="/neuro-shell.js?v=31" defer></script>
 <form id="textbar" hidden autocomplete="off"><input id="textin" placeholder="Type to Freya…" enterkeyhint="send"><button>Send</button></form>
 <div id="toast" aria-live="polite"></div>
 <button id="redo" hidden>Redo setup</button>
@@ -70,8 +71,7 @@
 
 <section id="lock" hidden>
   <div class="lock-inner">
-    <img class="mark-img" src="/mark.svg" alt="" width="120" height="120">
-    <h1>NEURO</h1><p class="neuro-sub">POWERED BY F.R.E.Y.A.</p>
+    <img class="nx-lock-logo" src="/brand/neuro-logo.svg" alt="NEURO. Powered by Freya" width="300" height="90">
     <div data-v="enrol" hidden>
       <p>One-time setup, Eesah. Lock me to your fingerprint so nobody else can open your life.</p>
       <button id="btn-enrol">Set up fingerprint</button>

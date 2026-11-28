@@ -8,7 +8,7 @@ import android.webkit.JavascriptInterface
 import org.json.JSONArray
 import org.json.JSONObject
 
-/** window.FreyaAndroid for the full app and the floating overlay. Only answers while the FREYA site is loaded. */
+/** window.FreyaAndroid for the full app and the floating overlay. Only answers while the Neuro site is loaded. */
 class FreyaBridge(private val c: Context, private val ourSite: () -> Boolean, private val onSession: (Boolean) -> Unit) {
     private val h = Handler(Looper.getMainLooper())
     private fun ok() = ourSite()
@@ -37,7 +37,8 @@ class FreyaBridge(private val c: Context, private val ourSite: () -> Boolean, pr
         val arr = JSONArray(); AlarmStore.all(c).forEach { arr.put(it.json()) }; return arr.toString()
     }
     @JavascriptInterface fun sessionActive(on: Boolean) {
-        if (on) WakeWordService.pause()
+        WakeWordService.sessionLive = on
+        if (on) { SleepFocus.sessionInterrupted(); WakeWordService.pause() } else WakeWordService.refresh()
         h.post { onSession(on) }
     }
     @JavascriptInterface fun wakeWordEnabled(): Boolean = Prefs.wakeEnabled(c)
@@ -62,11 +63,44 @@ class FreyaBridge(private val c: Context, private val ourSite: () -> Boolean, pr
     // Local "your section is ready" notification (scheduled when a section build starts).
     @JavascriptInterface fun notifyAt(at: Double, title: String?, body: String?, path: String?): String {
         if (!ok()) return err("not allowed")
-        return try { ReadyReceiver.schedule(c, at.toLong(), title ?: "FREYA", body ?: "", path ?: "/"); JSONObject().put("ok", true).toString() } catch (e: Exception) { err("could not schedule") }
+        return try { ReadyReceiver.schedule(c, at.toLong(), title ?: "Neuro", body ?: "", path ?: "/"); JSONObject().put("ok", true).toString() } catch (e: Exception) { err("could not schedule") }
     }
     @JavascriptInterface fun cancelNotify(path: String?): String {
         if (!ok()) return err("not allowed")
         ReadyReceiver.cancel(c, path ?: "/"); return JSONObject().put("ok", true).toString()
+    }
+    // ---- Limited, opt-in listening (Neuro "Learning you" windows) ----
+    /** The web Settings mirror: which windows he allowed, and the evening check-in time (HH:MM). */
+    @JavascriptInterface fun setLearning(json: String?): String {
+        if (!ok()) return err("not allowed")
+        return try {
+            val o = JSONObject(json ?: "{}")
+            val e = Prefs.app(c).edit().putBoolean("learn_conv", o.optBoolean("conversations")).putBoolean("learn_checkins", o.optBoolean("checkins"))
+                .putBoolean("learn_sleep", o.optBoolean("sleep"))
+            val t = o.optString("checkin_time", "21:00"); if (Regex("^([01]\\d|2[0-3]):[0-5]\\d$").matches(t)) e.putString("checkin_time", t)
+            e.apply()
+            if (!o.optBoolean("sleep") && SleepFocus.active) SleepFocus.stop(c, "allowance turned off")
+            CheckIn.schedule(c)
+            JSONObject().put("ok", true).toString()
+        } catch (x: Exception) { err("bad settings") }
+    }
+    @JavascriptInterface fun setNeuroMode(mode: String?) { if (ok()) { SleepFocus.setMode(c, (mode ?: "").take(20)); CheckIn.schedule(c) } }
+    @JavascriptInterface fun listeningStatus(): String {
+        val pm = c.getSystemService(android.os.PowerManager::class.java)
+        val nm = c.getSystemService(android.app.NotificationManager::class.java)
+        return SleepFocus.status()
+            .put("mic", c.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED)
+            .put("notifications", nm.areNotificationsEnabled())
+            .put("battery", pm.isIgnoringBatteryOptimizations(c.packageName))
+            .put("wake", Prefs.wakeEnabled(c)).put("native_sleep", true).toString()
+    }
+    /** Must come from his tap in the app (Android only lets a visible app start the microphone service). */
+    @JavascriptInterface fun sleepStart(): String = if (!ok()) err("not allowed") else SleepFocus.start(c).toString()
+    @JavascriptInterface fun sleepStop(): String = if (!ok()) err("not allowed") else SleepFocus.stop(c, "stopped in app").toString()
+    @JavascriptInterface fun sleepPending(): String = if (!ok()) "" else (SleepFocus.pending(c) ?: "")
+    @JavascriptInterface fun sleepClear() { if (ok()) SleepFocus.clearPending(c) }
+    @JavascriptInterface fun openListeningSetup() {
+        h.post { c.startActivity(Intent(c, SettingsActivity::class.java).putExtra("section", "listening").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
     }
     @JavascriptInterface fun openSettings() {
         h.post { c.startActivity(Intent(c, SettingsActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }

@@ -58,6 +58,9 @@ module.exports = async (req, res) => {
   // Connect-speed probe (no data returned): how long building her session context takes, phase by phase.
   if (req.query && req.query.only === 'timing') { const T = {}, t0 = Date.now(); const tk = require('./token'); const ctx = await tk.loadContext(T); T.total = Date.now() - t0; const t1 = Date.now(); const p = tk.persona({ ...ctx, mode: 'companion' }); T.persona_ms = Date.now() - t1; T.persona_chars = p.length; T.region = process.env.VERCEL_REGION || null; return res.status(200).json({ ok: true, timing: T }); }
   if (req.query && req.query.only === 'convo') { try { return res.status(200).json({ ok: true, convo: await CV.digest({ limit: 2, quietMin: +req.query.quiet >= 0 ? +req.query.quiet : 10 }) }); } catch (e) { return res.status(500).json({ error: 'convo failed' }); } }
+  // Money first: it is time-boxed by Lunch Flow, and running it after the section builds was overrunning the 60 s budget.
+  let money = null;
+  if (M.configured()) { try { money = await M.sync(); } catch (e) { money = { error: 'sync_failed' }; } }
   let sections = null;
   try { const t = new Date(); const lw = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', weekday: 'short', hour: '2-digit', hourCycle: 'h23' }).formatToParts(t); const wd = lw.find(p => p.type === 'weekday').value, hr = +lw.find(p => p.type === 'hour').value;
     sections = await SEC.tick(claim, { weeklyNow: wd === 'Mon' && hr >= 4 }); } catch (e) { sections = { error: true }; }
@@ -73,8 +76,6 @@ module.exports = async (req, res) => {
       try { meet.push(...await afterMeetings(s)); } catch (e) { meet.push('meetings_failed'); }
     }
     // Money: Lunch Flow sync at most every 6 hours (sync() decides).
-    let money = null;
-    if (M.configured()) { try { money = await M.sync(); } catch (e) { money = { error: 'sync_failed' }; } }
     // Pattern learning: daily signals (calendar load, habits, prayers) and the weekly re-learn (Monday from 04:00 UK).
     let learn = null;
     if (M.configured() && !(money && money.new_tx != null)) {

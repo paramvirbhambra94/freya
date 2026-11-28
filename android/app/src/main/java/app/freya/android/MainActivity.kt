@@ -105,8 +105,18 @@ class MainActivity : Activity() {
         val wake = isWake(intent)
 
         web = WebView(this)
-        web.setBackgroundColor(Color.parseColor("#0B0805"))
-        setContentView(web)
+        web.setBackgroundColor(Color.parseColor("#080D17"))
+        // Edge-to-edge on every Android version, then pad by the status/nav bars, cutout and keyboard,
+        // so nothing in the page can sit under the status bar (WebView doesn't report safe-area insets reliably).
+        val root = android.widget.FrameLayout(this).apply { setBackgroundColor(Color.parseColor("#080D17")); addView(web) }
+        androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false)
+        setContentView(root)
+        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(root) { v, ins ->
+            val bars = ins.getInsets(androidx.core.view.WindowInsetsCompat.Type.systemBars() or androidx.core.view.WindowInsetsCompat.Type.displayCutout())
+            val ime = ins.getInsets(androidx.core.view.WindowInsetsCompat.Type.ime())
+            v.setPadding(bars.left, bars.top, bars.right, maxOf(bars.bottom, ime.bottom))
+            androidx.core.view.WindowInsetsCompat.CONSUMED
+        }
         web.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
@@ -224,7 +234,7 @@ class MainActivity : Activity() {
         if (p.mode == WebChromeClient.FileChooserParams.MODE_OPEN_MULTIPLE) pick.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
         val extra = mutableListOf<Intent>()
         if (cam && img) extra.add(camIntent(false))
-        return Intent.createChooser(pick, "Add to FREYA").apply { if (extra.isNotEmpty()) putExtra(Intent.EXTRA_INITIAL_INTENTS, extra.toTypedArray()) }
+        return Intent.createChooser(pick, "Add to Neuro").apply { if (extra.isNotEmpty()) putExtra(Intent.EXTRA_INITIAL_INTENTS, extra.toTypedArray()) }
     }
 
     @Deprecated("Deprecated in Java")
@@ -246,7 +256,7 @@ class MainActivity : Activity() {
     }
 
     // Notification taps can deep-link into a section (only our own "/?section=..." paths).
-    private fun pathOf(i: Intent?): String? = i?.getStringExtra(EXTRA_PATH)?.takeIf { Regex("^/\\?section=[a-z]{3,12}$").matches(it) }
+    private fun pathOf(i: Intent?): String? = i?.getStringExtra(EXTRA_PATH)?.takeIf { (Regex("^/\\?section=[a-z]{3,12}$").matches(it) || it == CheckIn.PATH || Regex("^/\\?page=(home|chat|life|vault|settings)$").matches(it)) }
 
     private fun isWake(i: Intent?) = i != null && (i.getBooleanExtra(EXTRA_WAKE, false) || i.action == ACTION_TALK)
 
@@ -267,6 +277,7 @@ class MainActivity : Activity() {
         getSystemService(NotificationManager::class.java).cancel(6)
         // Mic belongs to the live session while FREYA is on screen.
         if (Prefs.wakeEnabled(this)) WakeWordService.tryStart(this, startPaused = true)
+        try { CheckIn.schedule(this) } catch (e: Exception) {}
     }
 
     override fun onPause() { super.onPause(); resumed = false }

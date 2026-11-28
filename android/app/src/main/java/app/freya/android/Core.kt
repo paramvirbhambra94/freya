@@ -15,28 +15,33 @@ object Prefs {
     fun app(c: Context): SharedPreferences = c.getSharedPreferences("freya", Context.MODE_PRIVATE)
     fun wakeEnabled(c: Context) = app(c).getBoolean("wake", false)
     fun setWake(c: Context, on: Boolean) = app(c).edit().putBoolean("wake", on).apply()
+    fun learning(c: Context) = app(c).let { mapOf("conversations" to it.getBoolean("learn_conv", false), "checkins" to it.getBoolean("learn_checkins", false), "sleep" to it.getBoolean("learn_sleep", false)) }
 }
 
 object Channels {
     const val LISTEN = "listen"
+    const val LISTEN_ON = "listening"
     const val WAKE = "wake"
     const val ALARM = "alarm"
     const val INFO = "info"
     const val NUDGE = "nudge"
     fun ensure(c: Context) {
         val nm = c.getSystemService(NotificationManager::class.java)
-        nm.createNotificationChannel(NotificationChannel(LISTEN, "Wake word (listening)", NotificationManager.IMPORTANCE_MIN).apply {
-            description = "Shown while FREYA listens for her name"; setShowBadge(false)
+        nm.createNotificationChannel(NotificationChannel(LISTEN, "Wake word", NotificationManager.IMPORTANCE_MIN).apply {
+            description = "Shown while Freya listens for her name"; setShowBadge(false)
+        })
+        nm.createNotificationChannel(NotificationChannel(LISTEN_ON, "Listening indicator", NotificationManager.IMPORTANCE_LOW).apply {
+            description = "Always shown while Freya listens in a window you started (Sleep Focus), with a Stop button"; setShowBadge(false)
         })
         nm.createNotificationChannel(NotificationChannel(WAKE, "Wake-up", NotificationManager.IMPORTANCE_HIGH).apply {
-            description = "Opens FREYA when you say her name"; setSound(null, null); setShowBadge(false)
+            description = "Opens Neuro when you say her name"; setSound(null, null); setShowBadge(false)
         })
         nm.createNotificationChannel(NotificationChannel(ALARM, "Alarms", NotificationManager.IMPORTANCE_HIGH).apply {
-            description = "Alarms set by FREYA"; setSound(null, null); enableVibration(false); setBypassDnd(true)
+            description = "Alarms set by Freya"; setSound(null, null); enableVibration(false); setBypassDnd(true)
         })
         nm.createNotificationChannel(NotificationChannel(INFO, "General", NotificationManager.IMPORTANCE_DEFAULT))
         nm.createNotificationChannel(NotificationChannel(NUDGE, "Gentle nudges", NotificationManager.IMPORTANCE_DEFAULT).apply {
-            description = "Short nudges from FREYA about long scrolling, late nights and sitting still"
+            description = "Short nudges from Freya about long scrolling, late nights and sitting still"
         })
     }
 }

@@ -230,7 +230,7 @@ async function trajectory() {
     db(`phone_days?select=day,screen_min,late_min,steps&day=gte.${b0}`).catch(() => []),
     db(`neuro_sleep?select=started_at,ended_at&started_at=gte.${b0}T00:00:00Z`).catch(() => [])
   ]);
-  const good = [], bad = [], steady = [];
+  const good = [], bad = [], steady = [], stale = [];
   const cmp = (label, cur, prev, unit, higherBetter, evidence) => {
     if (cur == null || prev == null) return;
     const d = cur - prev, pct = prev ? Math.round(d / prev * 100) : null;
@@ -254,6 +254,9 @@ async function trajectory() {
     const M = require('./_money');
     if (M.configured()) {
       const d = await M.load(3);
+      const latest = d.txs.length ? d.txs[d.txs.length - 1].date : null;
+      // If the bank feed hasn't delivered recent transactions, this week would look like near-zero spending: leave it out.
+      if (!latest || latest < dayStr(date, -3)) { stale.push({ label: 'Spending', reason: latest ? 'bank data stops at ' + latest : 'no bank data yet' }); throw 0; }
       const s1 = M.spending(d, 'last_7_days'), prevTo = dayStr(date, -7), prev = d.txs.filter(t => t.date >= b0 && t.date <= prevTo && !t.is_transfer && t.amount < 0 && !M.NON_SPEND.includes(t.category)).reduce((s, t) => s - t.amount, 0);
       cmp('Spending', s1.total_spent, prev, '£/week', false, 'bank transactions (read-only)');
     }
@@ -262,7 +265,7 @@ async function trajectory() {
   cmp('Sleep Focus session length', sl(a0, date), sl(b0, b1), 'h/night', true, 'Sleep Focus (session length, not proven sleep)');
   const total = good.length + bad.length + steady.length;
   const verdict = total < 2 ? 'Not enough data yet' : good.length > bad.length ? 'Improvement' : bad.length > good.length ? 'Downfall' : 'Holding steady';
-  return { period: { now: `${a0} to ${date}`, before: `${b0} to ${b1}` }, verdict, score: good.length - bad.length, good, bad, steady, measured: total, note: 'Compares your last 7 days with the 7 before, from your own records only. Missing sources are left out, not guessed.' };
+  return { period: { now: `${a0} to ${date}`, before: `${b0} to ${b1}`, now_from: a0, now_to: date, before_from: b0, before_to: b1 }, verdict, score: good.length - bad.length, good, bad, steady, stale, measured: total, note: 'Compares your last 7 days with the 7 before, from your own records only. Missing sources are left out, not guessed.' };
 }
 
 // ---------------- Futures (Doctor Strange outcome simulation, evidence-based) ----------------
@@ -378,7 +381,9 @@ async function finance() {
   const d = await M.load(); const a = M.analyse(d);
   let best = null; try { best = M.bestPath(d, 6); } catch (e) {}
   const subs = (a.recurring || []).filter(x => /subscri/i.test(x.category || '') || x.type === 'subscription').slice(0, 12);
-  return { connected: true, as_of: a.as_of, balance: a.balances.total, this_month: a.this_month, usual: a.usual, upcoming: (a.upcoming || []).slice(0, 8), insights: (a.insights || []).slice(0, 6), goal: a.goal, savers: best, subscriptions: subs, recurring_count: (a.recurring || []).length, jibreel: { status: 'concept', note: 'Jibreel (future fund idea) is planned only. No trading, investing or money movement is built or allowed.' } };
+  const latest = d.txs.length ? d.txs[d.txs.length - 1].date : null, prof = await getProfile().catch(() => ({}));
+  let err = null; try { err = prof.money_last_error ? JSON.parse(prof.money_last_error) : null; } catch (e) {}
+  return { connected: true, as_of: a.as_of, latest_tx: latest, feed_stale: !latest || latest < london().date.slice(0, 10) && (Date.parse(london().date) - Date.parse(latest)) > 3 * 864e5, feed_error: err && err.error ? 'Bank sync problem since ' + String(err.at).slice(0, 10) : null, balance: a.balances.total, this_month: a.this_month, usual: a.usual, upcoming: (a.upcoming || []).slice(0, 8), insights: (a.insights || []).slice(0, 6), goal: a.goal, savers: best, subscriptions: subs, recurring_count: (a.recurring || []).length, jibreel: { status: 'concept', note: 'Jibreel (future fund idea) is planned only. No trading, investing or money movement is built or allowed.' } };
 }
 
 async function contacts() { return { contacts: await db('emergency_contacts?select=name,phone,relation&order=id.asc').catch(() => []) }; }

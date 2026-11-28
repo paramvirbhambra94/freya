@@ -19,9 +19,9 @@ class AlarmActivity : Activity() {
         super.onCreate(b)
         setShowWhenLocked(true); setTurnScreenOn(true)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        val gold = Color.parseColor("#E8B45A")
+        val gold = Color.parseColor("#37D6CF")
         val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER; setBackgroundColor(Color.parseColor("#0B0805")); setPadding(48, 48, 48, 48)
+            orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER; setBackgroundColor(Color.parseColor("#080D17")); setPadding(48, 48, 48, 48)
         }
         root.addView(TextView(this).apply {
             text = SimpleDateFormat("HH:mm", Locale.UK).format(Date()); textSize = 84f; setTextColor(gold); gravity = Gravity.CENTER
@@ -33,7 +33,7 @@ class AlarmActivity : Activity() {
         })
         fun btn(t: String, primary: Boolean, go: () -> Unit) = Button(this).apply {
             text = t; textSize = 22f; isAllCaps = false
-            setTextColor(if (primary) Color.BLACK else gold); setBackgroundColor(if (primary) gold else Color.parseColor("#2A1C0C"))
+            setTextColor(if (primary) Color.BLACK else gold); setBackgroundColor(if (primary) gold else Color.parseColor("#172C2D"))
             setOnClickListener { go() }
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 180).apply { topMargin = 28 }
         }

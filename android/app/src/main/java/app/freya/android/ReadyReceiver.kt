@@ -26,9 +26,10 @@ class ReadyReceiver : BroadcastReceiver() {
     override fun onReceive(c: Context, i: Intent) {
         Channels.ensure(c)
         val path = i.getStringExtra("path") ?: "/"
+        if (path == CheckIn.PATH && !CheckIn.shouldPost(c)) return
         val open = PendingIntent.getActivity(c, path.hashCode(), Intent(c, MainActivity::class.java).putExtra(MainActivity.EXTRA_PATH, path)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        val n = Notification.Builder(c, Channels.INFO).setSmallIcon(R.drawable.ic_stat).setContentTitle(i.getStringExtra("title") ?: "FREYA")
+        val n = Notification.Builder(c, Channels.INFO).setSmallIcon(R.drawable.ic_stat).setContentTitle(i.getStringExtra("title") ?: "Neuro")
             .setContentText(i.getStringExtra("body") ?: "").setContentIntent(open).setAutoCancel(true).build()
         try { c.getSystemService(NotificationManager::class.java).notify(path.hashCode(), n) } catch (e: SecurityException) {}
     }

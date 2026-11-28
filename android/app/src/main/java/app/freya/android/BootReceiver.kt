@@ -28,8 +28,8 @@ class BootReceiver : BroadcastReceiver() {
             val pi = PendingIntent.getActivity(c, 7, Intent(c, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
             val n = Notification.Builder(c, Channels.INFO)
                 .setSmallIcon(R.drawable.ic_stat)
-                .setContentTitle("Tap to wake FREYA's ears")
-                .setContentText("After a restart, open FREYA once so she can listen for her name again.")
+                .setContentTitle("Tap to turn Freya's listening back on")
+                .setContentText("After a restart, open Neuro once so she can listen again.")
                 .setContentIntent(pi).setAutoCancel(true).build()
             try { c.getSystemService(NotificationManager::class.java).notify(7, n) } catch (e: SecurityException) {}
         }
