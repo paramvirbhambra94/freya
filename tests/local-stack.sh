@@ -5,4 +5,5 @@ set -euo pipefail
 D=${1:-/workspace/mu-test}; export PATH=/usr/lib/postgresql/17/bin:$PATH
 P="psql -h /tmp -p 54329 -U postgres -v ON_ERROR_STOP=1 -q"
 $P -d postgres -c "drop database if exists freya with (force)" -c "create database freya"
+$P -d postgres -c "do \$\$ begin if not exists (select 1 from pg_roles where rolname = 'anon') then create role anon nologin; end if; if not exists (select 1 from pg_roles where rolname = 'authenticated') then create role authenticated nologin; end if; end \$\$"
 $P -d freya -f "$D/schema.sql" -f "$D/seed.sql"

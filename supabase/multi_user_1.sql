@@ -12,6 +12,8 @@ do $$ declare t text; begin
     execute format('create table if not exists backup_mu_20261128.%I as table public.%I', t, t);
   end loop;
 end $$;
+revoke all on schema backup_mu_20261128 from public, anon, authenticated;
+revoke all on all tables in schema backup_mu_20261128 from public, anon, authenticated;
 
 create table if not exists public.app_users (
   id uuid primary key,
