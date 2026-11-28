@@ -1,4 +1,4 @@
-const C='freya-v16';
+const C='freya-v17';
 self.addEventListener('install',e=>{e.waitUntil(caches.open(C).then(c=>c.addAll(['/','/app.js','/sections.js', '/eyes.js','/neuro-shell.js','/freya-entity.js','/style.css','/manifest.webmanifest','/icon-192.png','/icon-512.png','/mark.svg','/icon.svg','/brand/neuro-logo.svg','/brand/neuro-wordmark.svg'])));self.skipWaiting()});
 self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(ks=>Promise.all(ks.filter(k=>k!==C&&k!=='freya-flags').map(k=>caches.delete(k)))).then(()=>self.clients.claim())));
 self.addEventListener('fetch',e=>{

@@ -6,7 +6,12 @@ const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 let forceOnboarding = new URLSearchParams(location.search).has('onboarding');
 
 const h = new Date().getHours();
-const greeting = (h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening') + ', Eesah.';
+// Who is signed in (set from /api/auth/status). Until we know, the owner's wording is used (his app is unchanged).
+window.freyaUser = window.freyaUser || null;
+const ME = () => (window.freyaUser && window.freyaUser.first) || 'Eesah';
+const OWNER = () => !window.freyaUser || window.freyaUser.owner !== false;
+const IOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+let greeting = (h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening') + ', Eesah.';
 // One calm line under her name, chosen once per open to suit the time of day (never the same twice running).
 const LINES = {
   morning: ["I'm here whenever you're ready.", 'What are we building today?', "Let's make today count.", 'Where shall we start?', "Talk to me, I'm listening."],
@@ -121,6 +126,11 @@ const WORKLET = `class P extends AudioWorkletProcessor{constructor(){super();thi
 process(inp){const c=inp[0]&&inp[0][0];if(c){for(let k=0;k<c.length;k++){const s=Math.max(-1,Math.min(1,c[k]));this.b[this.i++]=s<0?s*0x8000:s*0x7fff;
 if(this.i===this.b.length){this.port.postMessage(this.b.buffer,[this.b.buffer]);this.b=new Int16Array(1600);this.i=0}}}return true}}
 registerProcessor('pcm16',P);`;
+// Same output (16 kHz PCM16, 1600-sample chunks) from any input rate: box-filter + decimate (fine for speech).
+const WORKLET_RS = `class P extends AudioWorkletProcessor{constructor(){super();this.r=sampleRate/16000;this.t=0;this.a=0;this.n=0;this.b=new Int16Array(1600);this.i=0}
+process(inp){const c=inp[0]&&inp[0][0];if(c){for(let k=0;k<c.length;k++){this.a+=c[k];this.n++;this.t+=1;if(this.t>=this.r){this.t-=this.r;const s=Math.max(-1,Math.min(1,this.a/this.n));this.a=0;this.n=0;this.b[this.i++]=s<0?s*0x8000:s*0x7fff;
+if(this.i===this.b.length){this.port.postMessage(this.b.buffer,[this.b.buffer]);this.b=new Int16Array(1600);this.i=0}}}}return true}}
+registerProcessor('pcm16',P);`;
 function b64FromBuf(buf) {
   const u = new Uint8Array(buf); let s = '';
   for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000));
@@ -143,7 +153,8 @@ function playPcm(b64) {
 // If the output context gets suspended/interrupted, resume it; if its clock freezes while she has audio queued, rebuild it.
 let guardCT = -1, guardStuck = 0;
 function buildOut() {
-  outCtx = new AudioContext({ sampleRate: 24000 }); outCtx.resume().catch(() => {});
+  // iOS Safari / home-screen app: use the device's native rate (24 kHz buffers are resampled by Web Audio). Android keeps 24 kHz.
+  outCtx = IOS ? new (window.AudioContext || window.webkitAudioContext)() : new AudioContext({ sampleRate: 24000 }); outCtx.resume().catch(() => {});
   analyser = outCtx.createAnalyser(); analyser.fftSize = 256;
   outGain = outCtx.createGain(); outGain.gain.value = salahOn() ? 0 : curVol(); analyser.connect(outGain); outGain.connect(outCtx.destination);
   outCtx.onstatechange = () => { if (active && outCtx && outCtx.state !== 'running' && outCtx.state !== 'closed') outCtx.resume().catch(() => {}); };
@@ -476,21 +487,21 @@ async function connect(isReconnect) {
   } else if (isReconnect) {
     // Reconnects are silent: the conversation resumes (same history) and she waits for him. No cue, no greeting, no replay.
   } else if (mode === 'onboarding') {
-    sock.send(JSON.stringify({ realtimeInput: { text: '(Cue: Eesah just tapped the orb to start his onboarding. Begin now.)' } }));
+    sock.send(JSON.stringify({ realtimeInput: { text: '(Cue: ' + ME() + ' just tapped the orb to start his onboarding. Begin now.)' } }));
     setBusy(true);
   } else if (j.debrief) {
     debriefPending = null; history.replaceState(null, '', '/');
-    sock.send(JSON.stringify({ realtimeInput: { text: '(Cue: Eesah opened the debrief. Begin it now.)' } })); setBusy(true);
+    sock.send(JSON.stringify({ realtimeInput: { text: '(Cue: ' + ME() + ' opened the debrief. Begin it now.)' } })); setBusy(true);
   } else if (j.brief) {
     briefPending = false; history.replaceState(null, '', '/');
-    sock.send(JSON.stringify({ realtimeInput: { text: '(Cue: Eesah opened his morning brief. Begin it now.)' } })); setBusy(true);
+    sock.send(JSON.stringify({ realtimeInput: { text: '(Cue: ' + ME() + ' opened his morning brief. Begin it now.)' } })); setBusy(true);
   } else if (mode === 'guest') {
-    sock.send(JSON.stringify({ realtimeInput: { text: '(Cue: Eesah has handed the phone to his guest. Greet them in one short line and say they can ask you anything general.)' } })); setBusy(true);
+    sock.send(JSON.stringify({ realtimeInput: { text: '(Cue: ' + ME() + ' has handed the phone to his guest. Greet them in one short line and say they can ask you anything general.)' } })); setBusy(true);
   } else if (mode === 'practice') {
     sock.send(JSON.stringify({ realtimeInput: { text: '(Cue: speaking practice started. Begin as described, in one short line.)' } })); setBusy(true);
   } else if (checkinPending) {
     checkinPending = false; history.replaceState(null, '', '/');
-    sock.send(JSON.stringify({ realtimeInput: { text: '(Cue: Eesah opened his evening check-in. In a soft, short way ask about his energy, mood, one win and what is on his mind, one question at a time. Listen more than you talk. If learning is on and something is clearly supported by what he says, note it with note_observation.)' } })); setBusy(true);
+    sock.send(JSON.stringify({ realtimeInput: { text: '(Cue: ' + ME() + ' opened his evening check-in. In a soft, short way ask about his energy, mood, one win and what is on his mind, one question at a time. Listen more than you talk. If learning is on and something is clearly supported by what he says, note it with note_observation.)' } })); setBusy(true);
   } else if (nudgePending) {
     const t = nudgePending; nudgePending = '';
     sock.send(JSON.stringify({ realtimeInput: { text: '(Cue: spoken nudge from his phone, not his words: "' + t.replace(/["()]/g, '') + '". Say it to him now in one short, warm, light line in your own words, no lecture, then stop and wait. If he says not now or that it is work, accept it in a few words.)' } })); setBusy(true);
@@ -507,6 +518,19 @@ async function refresh(e) {
   catch (err) { connecting = false; stop(err.message); }
 }
 
+// Invited accounts have a daily voice allowance: report live minutes once a minute; the server says when it's used up.
+let beatT = null, beatAt = 0;
+function voiceBeat(on) {
+  if (beatT) { clearInterval(beatT); beatT = null; if (!on && beatAt && !OWNER()) { const sec = Math.round((Date.now() - beatAt) / 1000); if (sec > 2) fetch('/api/memory', { method: 'POST', keepalive: true, headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'voice_tick', seconds: Math.min(75, sec) }) }).catch(() => {}); } }
+  beatAt = 0; if (!on || OWNER()) return;
+  beatAt = Date.now();
+  beatT = setInterval(async () => {
+    const sec = Math.round((Date.now() - beatAt) / 1000); beatAt = Date.now();
+    const r = await fetch('/api/memory', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'voice_tick', seconds: Math.min(75, sec) }) }).then(x => x.json()).catch(() => null);
+    if (r && r.over && active) { beatAt = 0; stop(r.message || "That's today's time with Freya used up."); }
+    else if (r && r.left_sec != null && r.left_sec <= 120 && r.left_sec > 60) toast('About 2 minutes of voice left today');
+  }, 60e3);
+}
 async function start() {
   if (connecting) return; connecting = true;
   setState('connecting'); setStatus('Connecting…'); clearCaptions();
@@ -514,14 +538,15 @@ async function start() {
   try {
     if (!navigator.onLine) throw new Error("You're offline. Check your connection and try again.");
     buildOut();
-    micCtx = new AudioContext({ sampleRate: 16000 }); micCtx.resume();
+    // iOS: a 16 kHz mic context can come out silent or distorted, so record at the native rate and downsample to 16 kHz in the worklet.
+    micCtx = IOS ? new (window.AudioContext || window.webkitAudioContext)() : new AudioContext({ sampleRate: 16000 }); micCtx.resume().catch(() => {});
     // The mic warms up while she connects (in parallel, not before).
     const micP = (async () => {
       const mc = micCtx;
       try { micStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } }); }
       catch (e) { return false; }
       if (mc !== micCtx) return false;
-      await micCtx.audioWorklet.addModule(URL.createObjectURL(new Blob([WORKLET], { type: 'application/javascript' })));
+      await micCtx.audioWorklet.addModule(URL.createObjectURL(new Blob([micCtx.sampleRate === 16000 ? WORKLET : WORKLET_RS], { type: 'application/javascript' })));
       if (mc !== micCtx) { try { micStream && micStream.getTracks().forEach(t => t.stop()); } catch (e) {} return false; } // stopped while warming up
       micNode = new AudioWorkletNode(micCtx, 'pcm16');
       micCtx.createMediaStreamSource(micStream).connect(micNode);
@@ -553,7 +578,7 @@ async function start() {
     conv.fresh = gap > 30 * 60e3 || !conv.handle && !conv.ended; conv.ended = null; conv.at = Date.now(); saveConv(); flushTurns(); wokeBy = false;
     try { await connect(false); }
     catch (err) { if (!resumeHandle) throw err; resumeHandle = null; conv.handle = null; await connect(false); } // stale handle: fresh session, same memory
-    connecting = false;
+    connecting = false; voiceBeat(true);
     $('textbar').hidden = false; $('redo').hidden = true;
     setState('listening'); setStatus(mode === 'onboarding' ? 'Setting you up · listening…' : 'Listening…'); // live as soon as she's connected
     const micOk = await micP;
@@ -567,6 +592,7 @@ async function start() {
 }
 
 function stop(msg, reason) {
+  voiceBeat(false);
   if (window.freyaEyes) freyaEyes.close('session');
   if (active) { endConv(reason || 'dropped', document.hidden); if (lastHerQ && Date.now() - lastHerQ.at < 15 * 60e3) writeLS('freyaOpenQ', lastHerQ); lastHerQ = null; } // keepalive: the page may be going away
   active = false; setBusy(false); document.body.classList.remove('tooling');
@@ -682,7 +708,7 @@ $('pdf').addEventListener('click', async () => {
     await loadJsPdf(); const { jsPDF } = window.jspdf; const doc = new jsPDF({ unit: 'pt', format: 'a4' });
     const W = 595, M = 50; let y = 60;
     const line = (t, size, color, gap) => { doc.setFontSize(size); doc.setTextColor(...color); for (const l of doc.splitTextToSize(String(t), W - 2 * M)) { if (y > 790) { doc.addPage(); y = 60; } doc.text(l, M, y); y += size * 1.35; } y += gap || 0; };
-    line('F.R.E.Y.A.  ·  Life plan for Eesah', 11, [168, 100, 28], 6);
+    line('F.R.E.Y.A.  ·  Life plan for ' + ME(), 11, [168, 100, 28], 6);
     line(new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }), 9, [120, 110, 100], 14);
     line(currentPlan.headline || '', 18, [30, 20, 8], 12);
     for (const s of currentPlan.sections || []) { line(s.area, 13, [168, 100, 28], 2); line(s.focus, 11, [40, 30, 20], 2); for (const a of s.actions || []) line('•  ' + a, 11, [40, 30, 20]); y += 10; }
@@ -700,18 +726,18 @@ $('commit').addEventListener('click', async () => {
   const contacts = [...document.querySelectorAll('.contact')].map(d => Object.fromEntries([...d.querySelectorAll('input')].map(i => [i.dataset.k, i.value.trim()]))).filter(c => c.name && c.phone);
   if (!$('pledge').value.trim()) return err.textContent = 'Your pledge is empty.';
   if (!sigDirty) return err.textContent = 'Sign with your finger first.';
-  if (contacts.length < 2) return err.textContent = 'Add at least two emergency contacts with a name and phone number.';
+  if (OWNER() && contacts.length < 2) return err.textContent = 'Add at least two emergency contacts with a name and phone number.';
   $('commit').disabled = true; $('commit').textContent = 'Saving…';
   const r = await post('/api/onboarding', { action: 'pledge', text: $('pledge').value.trim(), signature_png: $('sig').toDataURL('image/png'), contacts }).catch(() => ({ ok: false }));
   $('commit').disabled = false; $('commit').textContent = 'Sign & commit';
   if (!r.ok) return err.textContent = r.error || "Couldn't save. Check your connection and try again.";
   $('wrap').hidden = true; onboardingState.status = 'complete'; $('redo').hidden = false;
-  idleMsg = "Signed and sealed, Eesah. I've got your back."; setStatus(idleMsg); toast('Pledge saved'); window.dispatchEvent(new Event('freya:ready'));
+  idleMsg = `Signed and sealed, ${ME()}. I've got your back.`; setStatus(idleMsg); toast('Pledge saved'); window.dispatchEvent(new Event('freya:ready'));
   if (forceOnboarding) { forceOnboarding = false; history.replaceState(null, '', '/'); }
 });
 
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js');
-boot();
+Promise.resolve().then(boot); // after the whole script has run (boot uses the sign-in helpers defined below)
 
 // ================= Sign-in (passkey, single owner) =================
 let authed = false, life = null;
@@ -754,10 +780,80 @@ async function unlock() {
       response: { clientDataJSON: b2u(cred.response.clientDataJSON), authenticatorData: b2u(cred.response.authenticatorData), signature: b2u(cred.response.signature), userHandle: cred.response.userHandle ? b2u(cred.response.userHandle) : undefined }
     } });
     if (!r.ok) throw new Error(r.error || 'Sign-in failed.');
+    const st = await getJ('/api/auth/status').catch(() => ({})); if (st.user) setUser(st.user);
     authed = true; unlocked();
   } catch (e) { err.textContent = e.name === 'NotAllowedError' ? 'Cancelled. Tap Unlock to try again.' : (e.message || 'Sign-in failed.'); }
 }
-function unlocked() { $('lock').hidden = true; loadOnboarding(); loadLife(); wakeGo(); }
+function unlocked() { $('lock').hidden = true; loadOnboarding(); loadLife(); wakeGo(); a2hsMaybe(); }
+// Who this is: names in her lines and which owner-only bits of the screen exist.
+function setUser(u) {
+  window.freyaUser = u || null;
+  const tester = !OWNER();
+  document.body.classList.toggle('tester', tester);
+  if (tester) {
+    greeting = greeting.replace('Eesah', ME()); idleMsg = idleMsg.replace(/Eesah/g, ME());
+    const hint = document.querySelector('#contacts') && document.querySelector('#contacts').previousElementSibling;
+    if (hint) hint.textContent = 'Optional. Freya only reaches them as a last resort, and never shares anything private.';
+    if (!active && !connecting) setStatus(idleMsg);
+  }
+  window.dispatchEvent(new CustomEvent('freya:user', { detail: window.freyaUser }));
+}
+// ---------- invite link: ?invite=<token> → create their own passkey (their own, separate account) ----------
+const INVITE = new URLSearchParams(location.search).get('invite');
+let invOpts = null, invAt = 0, invInfo = null;
+async function invitePrefetch() {
+  const r = await fetch('/api/auth/invite-options', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ t: INVITE }) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || 'This invite link has expired or was already used. Ask for a new one.');
+  invOpts = j; invAt = Date.now(); return j;
+}
+async function inviteLanding() {
+  $('lock').hidden = false; lockView('invite'); $('lock-err').textContent = '';
+  const i = await getJ('/api/auth/invite?t=' + encodeURIComponent(INVITE)).catch(() => ({}));
+  if (!i.valid) { $('inv-msg').textContent = 'This invite link has expired or was already used. Ask for a new one.'; $('btn-invite').hidden = true; return; }
+  invInfo = i;
+  $('inv-msg').textContent = `Hi ${i.first}. You've been invited to try Neuro. Create a passkey (Face ID or Touch ID) and this becomes your own private account: nobody else can see it, and you won't need a password.`;
+  $('inv-exp').textContent = 'Link valid until ' + new Date(i.expires_at).toLocaleString('en-GB', { timeZone: 'Europe/London', weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) + ' (UK time), and works once.';
+  // Fetch the passkey options now, so the tap goes straight to Face ID (iOS needs the prompt inside the tap).
+  invitePrefetch().catch(e => { $('lock-err').textContent = e.message; });
+}
+async function inviteAccept() {
+  const err = $('lock-err'); err.textContent = ''; const btn = $('btn-invite'); btn.disabled = true;
+  try {
+    const o = invOpts && Date.now() - invAt < 4 * 60e3 ? invOpts : await invitePrefetch(); invOpts = null;
+    const cred = await navigator.credentials.create({ publicKey: {
+      ...o, challenge: u2b(o.challenge), user: { ...o.user, id: u2b(o.user.id) },
+      excludeCredentials: (o.excludeCredentials || []).map(c => ({ ...c, id: u2b(c.id) }))
+    } });
+    const r = await post('/api/auth/invite-verify', { t: INVITE, response: {
+      id: cred.id, rawId: b2u(cred.rawId), type: cred.type, authenticatorAttachment: cred.authenticatorAttachment || undefined,
+      clientExtensionResults: cred.getClientExtensionResults(),
+      response: { clientDataJSON: b2u(cred.response.clientDataJSON), attestationObject: b2u(cred.response.attestationObject), transports: cred.response.getTransports ? cred.response.getTransports() : [] }
+    } });
+    if (!r.ok) throw new Error(r.error || 'Setup failed.');
+    history.replaceState(null, '', '/');
+    const s = await getJ('/api/auth/status').catch(() => ({}));
+    authed = true; setUser(s.user || { first: r.first, name: r.name, owner: false });
+    if (IOS && !standalone()) { $('inv-done').textContent = `You're in, ${r.first}. Next, put Neuro on your Home Screen so it opens like an app.`; lockView('welcome'); a2hsSteps($('inv-steps')); try { localStorage.setItem('neuroA2hs', '1'); } catch (e) {} }
+    else unlocked();
+  } catch (e) {
+    err.textContent = e.name === 'NotAllowedError' ? 'Cancelled. Tap to try again.' : e.name === 'InvalidStateError' ? 'This device already has a passkey for this account. Go to the app and tap Unlock.' : (e.message || 'Setup failed.');
+    invitePrefetch().catch(() => {});
+  } finally { btn.disabled = false; }
+}
+// ---------- iPhone: "Add to Home Screen" guide (Safari only, first visit) ----------
+const standalone = () => window.navigator.standalone === true || matchMedia('(display-mode: standalone)').matches;
+function a2hsSteps(el) {
+  el.innerHTML = `<ol class="a2hs-steps"><li>Tap the <b>Share</b> button <span aria-hidden="true">(the square with an arrow, at the bottom of Safari)</span>.</li><li>Scroll down and tap <b>Add to Home Screen</b>.</li><li>Tap <b>Add</b>, then open <b>Neuro</b> from your Home Screen and tap <b>Unlock</b>. Your passkey signs you in.</li></ol><p class="hint">Freya needs the microphone: allow it when she first asks.</p>`;
+}
+function a2hsMaybe() {
+  if (!IOS || standalone()) return;
+  try { if (localStorage.getItem('neuroA2hs')) return; localStorage.setItem('neuroA2hs', '1'); } catch (e) {}
+  const c = $('a2hs'); a2hsSteps($('a2hs-steps')); c.hidden = false;
+}
+$('a2hs-close').addEventListener('click', () => { $('a2hs').hidden = true; });
+$('btn-invite').addEventListener('click', inviteAccept);
+$('btn-welcome').addEventListener('click', () => unlocked());
 // "Freya" wake word (Android app): ?wake=1 or window.freyaWake() starts talking straight away once signed in.
 function wakeGo() {
   if (!wakePending || !authed) return;
@@ -774,7 +870,9 @@ $('to-recover').addEventListener('click', () => lockView('recover'));
 $('btn-recover').addEventListener('click', () => enrol($('recin').value.trim()));
 $('back-unlock').addEventListener('click', () => lockView('unlock'));
 async function boot() {
+  if (INVITE) { const s0 = await getJ('/api/auth/status').catch(() => ({})); if (s0.ok && s0.authed && s0.user && !s0.user.owner) { history.replaceState(null, '', '/'); authed = true; setUser(s0.user); return unlocked(); } return inviteLanding(); }
   const s = await getJ('/api/auth/status').catch(() => ({ ok: false }));
+  if (s.ok && s.user) setUser(s.user);
   if (s.ok && s.authed) { authed = true; return unlocked(); }
   if (!s.ok) { authed = true; loadOnboarding(); return wakeGo(); } // memory not configured: voice-only mode
   showLock(s.enrolled ? 'unlock' : 'enrol');
@@ -804,7 +902,7 @@ function renderLife() {
   if (window.freyaSalahPanel) freyaSalahPanel.render();
   if (!active) setStatus(pv.on && pv.auto && !pv.manualUntil ? `Salah time. I'll be here after ${cap(pv.auto.prayer)}.` : pv.on && pv.meeting && !pv.manualUntil ? `You're in "${pv.meeting.summary}". I'll keep quiet.` : idleMsg);
   showGoogleChip(false);
-  $('mbtn').hidden = onboardingState.status !== 'complete';
+  $('mbtn').hidden = !OWNER() || onboardingState.status !== 'complete';
   if (moneyPending && onboardingState.status === 'complete') { moneyPending = false; history.replaceState(null, '', '/'); openMoney(); }
 }
 function minutesUntil(hm, day) {
@@ -897,6 +995,7 @@ $('notify').addEventListener('click', async () => {
 
 // ================= Google Workspace =================
 function showGoogleChip(force) {
+  if (!OWNER()) { $('gchip').hidden = true; $('glink').hidden = true; return; } // Google (JSE) is the owner's only
   const gg = (life && life.google) || {};
   const done = onboardingState.status === 'complete';
   const chip = $('gchip');

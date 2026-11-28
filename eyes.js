@@ -1,3 +1,4 @@
+const EME = () => (window.freyaUser && window.freyaUser.first) || 'Eesah'; // whoever is signed in
 // F.R.E.Y.A. eyes: show her something. Live camera streamed into the voice session (~1 fps, low-res, never stored),
 // or a photo / short video shared into the conversation. Shares app.js globals.
 (() => {
@@ -81,7 +82,7 @@
         if (!stream || paused || !ws || ws.readyState !== 1) return;
         const f = grab(MAX_SIDE, Q); if (!f) return;
         sendFrame(f);
-        if (first) { first = false; if (salah) salahCue(true); else cue('(Cue, not his words: Eesah just opened live camera. You can now see what his phone camera sees, about one frame a second. Keep talking out loud with your normal voice the whole time the camera is on. Say one short line that you are looking, then wait for him.)'); }
+        if (first) { first = false; if (salah) salahCue(true); else cue('(Cue, not his words: ' + EME() + ' just opened live camera. You can now see what his phone camera sees, about one frame a second. Keep talking out loud with your normal voice the whole time the camera is on. Say one short line that you are looking, then wait for him.)'); }
         const now = Date.now();
         if (salah) return; // while he prays nothing about the frames is described or remembered
         if (!seenBuf.length || now - seenBuf[seenBuf.length - 1].t > 20000) { const s = grab(320, 0.5); if (s) { seenBuf.push({ t: now, f: s }); if (seenBuf.length > 3) seenBuf.shift(); } }
@@ -132,7 +133,7 @@
     if (!(ws && ws.readyState === 1)) return;
     const due = life && life.due ? life.due.prayer : null;
     const txt = first
-      ? `(Cue, not his words: SALAH MODE IS ON. Eesah is about to pray${due ? ' ' + due : ''} in front of the camera. From now until salah mode ends, be completely silent: do not speak, do not make any sound, do not reply to anything, produce no audio at all. Just watch the frames. When you have seen him complete the prayer, through the final sitting and the tasleem (turning his head right then left), call salah_complete once. Never call it before.)`
+      ? `(Cue, not his words: SALAH MODE IS ON. ${EME()} is about to pray${due ? ' ' + due : ''} in front of the camera. From now until salah mode ends, be completely silent: do not speak, do not make any sound, do not reply to anything, produce no audio at all. Just watch the frames. When you have seen him complete the prayer, through the final sitting and the tasleem (turning his head right then left), call salah_complete once. Never call it before.)`
       : '(Salah check, silent, not his words: still salah mode. Produce no speech or audio. If you have now seen him finish the prayer with the tasleem, call salah_complete; otherwise do nothing and keep watching.)';
     ws.send(JSON.stringify({ realtimeInput: { text: txt } }));
   }
@@ -233,8 +234,8 @@
     sendFrame(frame);
     pushTurn('user', kind === 'video' ? `(shared a ${secs}s video)` : '(shared a photo)');
     setTimeout(() => cue(kind === 'video'
-      ? `(Cue, not his words: Eesah just shared a ${secs}-second video with you; the frame you just received is 6 stills from it in order, left to right, top to bottom. Look closely. In one line say what you see, then give the most useful practical suggestions for what he most likely wants. Ask what he wants if it's unclear. If it fits one of his growth sections, offer once to save it there.)`
-      : '(Cue, not his words: Eesah just shared a photo with you; it is the image you just received. Look closely. In one line say what you see, then give the most useful practical suggestions for what he most likely wants. Ask what he wants if it\'s unclear. If it fits one of his growth sections, offer once to save it there. If it shows him at the masjid and he wants his salah counted, call log_prayer with evidence photo.)'), 250);
+      ? `(Cue, not his words: ${EME()} just shared a ${secs}-second video with you; the frame you just received is 6 stills from it in order, left to right, top to bottom. Look closely. In one line say what you see, then give the most useful practical suggestions for what he most likely wants. Ask what he wants if it's unclear. If it fits one of his growth sections, offer once to save it there.)`
+      : '(Cue, not his words: ' + EME() + ' just shared a photo with you; it is the image you just received. Look closely. In one line say what you see, then give the most useful practical suggestions for what he most likely wants. Ask what he wants if it\'s unclear. If it fits one of his growth sections, offer once to save it there. If it shows him at the masjid and he wants his salah counted, call log_prayer with evidence photo.)'), 250);
     sendSeen(kind, [small]);
   }
 

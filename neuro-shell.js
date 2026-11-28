@@ -30,7 +30,10 @@
   // ---------------- header ----------------
   const now = new Date(), hr = now.getHours();
   $('n-date').textContent = now.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
-  $('n-greeting').textContent = (hr < 5 ? 'Still up' : hr < 12 ? 'Good morning' : hr < 18 ? 'Good afternoon' : 'Good evening') + ', Eesah.';
+  const U = () => window.freyaUser || null, isOwner = () => !U() || U().owner !== false;
+  const greet = () => { $('n-greeting').textContent = (hr < 5 ? 'Still up' : hr < 12 ? 'Good morning' : hr < 18 ? 'Good afternoon' : 'Good evening') + ', ' + ((U() && U().first) || 'Eesah') + '.'; };
+  greet();
+  window.addEventListener('freya:user', () => { greet(); if (page === 'settings' || page === 'life') setPage(page); });
   const sub = document.querySelector('#n-home .n-muted'); if (sub) sub.textContent = 'Your day, decisions and progress in one place.';
   // One app bar: brand left; salah status, volume and settings right. Existing controls are moved in (their handlers stay).
   const actions = $('nx-actions');
@@ -214,7 +217,7 @@
   // ---------------- life spaces ----------------
   const SPACES = () => [
     ['physical', '＋', 'Physical', 'Trainer · nutrition · recovery'],
-    ['finance', '£', 'Finance', 'Saver · accountant · decisions'],
+    ...(isOwner() ? [['finance', '£', 'Finance', 'Saver · accountant · decisions']] : []),
     ['mind', prefs.islamicMode ? '☾' : '◈', prefs.islamicMode ? 'Mind & Deen' : 'Mind', prefs.islamicMode ? 'Salah · wisdom · wellbeing' : 'Wellbeing · sleep · habits'],
     ['connect', '◎', 'Connect', 'Communication coach'],
     ['work', '▤', 'Work', 'Today · decisions · focus'],
@@ -429,9 +432,10 @@
         <p class="nx-small">No background recording. Freya never keeps raw audio, pauses in Private and Salah, and everything she learns is in Vault, where you can correct or delete it.</p>
         ${APPX ? `<button class="ghost nx-wide" id="nx-listen-setup">Phone listening setup</button><p class="nx-small" id="nx-listen-state"></p>` : ''}</section>
       <section class="nx-card"><div class="nx-card-h"><h2>Guest chat</h2></div><p class="nx-small">Freya answers only you. Let someone talk to her for a few minutes; they get none of your private information.</p><form id="nx-gf" class="nx-inline"><input maxlength="40" placeholder="Their name" id="nx-gn" aria-label="Guest's name"><button>Allow</button></form></section>
+      ${isOwner() && U() ? `<section class="nx-card" id="nx-testers"><div class="nx-card-h"><h2>Testers</h2><span class="nx-tag">Owner</span></div><p class="nx-small">Invite someone to their own separate account. They see none of your data, and owner-only features (Google, bank, phone awareness) stay yours.</p><form id="nx-invf" class="nx-inline"><input maxlength="60" placeholder="Their name" id="nx-invn" aria-label="Tester's name" autocomplete="off"><button>Invite a tester</button></form><div id="nx-invout"></div><div id="nx-users"><p class="nx-load">Loading…</p></div></section>` : ''}
       <section class="nx-card"><div class="nx-card-h"><h2>What Freya may do</h2><span class="nx-tag">Deny by default</span></div><div id="nx-auth"><p class="nx-load">Loading…</p></div></section>
       <section class="nx-card"><div class="nx-card-h"><h2>Device</h2></div><div class="nx-list">
-        <button id="n-native"><strong>Android settings</strong><small>Wake word, listening and permissions</small></button>
+        ${isOwner() ? `<button id="n-native"><strong>Android settings</strong><small>Wake word, listening and permissions</small></button>` : ''}
         <button id="nx-notif"><strong>Reminders</strong><small>Notifications on this device</small></button>
         <button id="nx-redo" hidden><strong>Redo setup</strong><small>Go through onboarding again</small></button></div></section>`;
     const redo = $('redo'), nr = $('nx-redo'); if (redo && nr) { nr.hidden = redo.hidden; nr.onclick = () => redo.click(); }
@@ -443,9 +447,42 @@
     root.querySelectorAll('[data-l]').forEach(i => i.onchange = async () => { try { const r = await act('neuro_learning', { [i.dataset.l]: i.checked, checkin_time: $('nx-cit').value }); prefs.learning = r.learning; native('setLearning', JSON.stringify(r.learning || {})); say('Saved'); } catch (e) { i.checked = !i.checked; say(e.message); } });
     $('nx-cit').onchange = async () => { try { const r = await act('neuro_learning', { checkin_time: $('nx-cit').value }); prefs.learning = r.learning; native('setLearning', JSON.stringify(r.learning || {})); } catch (e) { say(e.message); } };
     $('nx-gf').onsubmit = e => { e.preventDefault(); confirmGuest($('nx-gn').value || 'a guest', 15); };
-    $('n-native').onclick = () => { if (window.FreyaAndroid && FreyaAndroid.openSettings) FreyaAndroid.openSettings(); else say('Available in the Neuro Android app.'); };
+    if (isOwner() && U()) testersCard();
+    if ($('n-native')) $('n-native').onclick = () => { if (window.FreyaAndroid && FreyaAndroid.openSettings) FreyaAndroid.openSettings(); else say('Available in the Neuro Android app.'); };
     $('nx-notif').onclick = () => { if (!$('notify').hidden) $('notify').click(); else say('Reminders are already set up on this device.'); };
     api('neuro=actions').then(d => { $('nx-auth').innerHTML = `<ul class="nx-auth">${Object.values(d.policy).map(p => `<li><div><strong>${esc(p.label)}</strong>${p.reason ? `<small>${esc(p.reason)}</small>` : ''}</div><i class="nx-status ${esc(p.authority)}">${({ approval: 'Asks first', routine: 'Allowed', never: 'Never', blocked: 'Not built' })[p.authority] || esc(p.authority)}</i></li>`).join('')}</ul>`; }).catch(e => fail($('nx-auth'), e));
+  }
+
+  // ---------------- testers (owner only): invite links, accounts, revoke ----------------
+  async function authApi(action, b) {
+    const r = await fetch('/api/auth/' + action, b ? { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(b) } : { cache: 'no-store' });
+    const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || 'That did not work.'); return j;
+  }
+  const ukShort = t => new Date(t).toLocaleString('en-GB', { timeZone: 'Europe/London', weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+  function showLink(r) {
+    const out = $('nx-invout'); if (!out) return;
+    out.innerHTML = `<p class="nx-small">Link for <strong>${esc(r.name)}</strong> · works once · until ${esc(ukShort(r.expires_at))} (UK)</p><p class="nx-invlink" id="nx-invl">${esc(r.link)}</p><div class="nx-row2"><button id="nx-invc">Copy link</button>${navigator.share ? '<button class="ghost" id="nx-invs">Share…</button>' : ''}</div><p class="nx-small">Ask them to open it in Safari on their iPhone, create a passkey, then Add to Home Screen.</p>`;
+    $('nx-invc').onclick = () => { (navigator.clipboard ? navigator.clipboard.writeText(r.link) : Promise.reject()).then(() => say('Link copied')).catch(() => { const sel = getSelection(), rg = document.createRange(); rg.selectNodeContents($('nx-invl')); sel.removeAllRanges(); sel.addRange(rg); say('Select and copy the link'); }); };
+    if ($('nx-invs')) $('nx-invs').onclick = () => navigator.share({ title: 'Neuro invite', text: `Your invite to try Neuro (works once, until ${ukShort(r.expires_at)} UK time):`, url: r.link }).catch(() => {});
+  }
+  async function testersCard() {
+    const f = $('nx-invf');
+    if (f) f.onsubmit = async e => { e.preventDefault(); const n = $('nx-invn').value.trim(); if (!n) return say('Add their name'); const b = f.querySelector('button'); b.disabled = true; try { const r = await authApi('invite-create', { name: n }); $('nx-invn').value = ''; showLink(r); listUsers(); } catch (x) { say(x.message); } finally { b.disabled = false; } };
+    listUsers();
+  }
+  async function listUsers() {
+    const el = $('nx-users'); if (!el) return;
+    try {
+      const d = await authApi('users');
+      const people = d.users.filter(u => u.role !== 'owner');
+      const rows = people.map(u => `<li><div><strong>${esc(u.name)}</strong><small>${u.status === 'active' ? 'Active' : 'Switched off'} · ${u.last_sign_in ? 'last in ' + esc(ukShort(u.last_sign_in)) : 'not signed in yet'}${u.voice_today_min != null ? ` · voice today ${u.voice_today_min}/${u.voice_cap_min || 30} min` : ''}</small></div><span>${u.status === 'active' ? `<button class="ghost" data-newlink="${esc(u.id)}">New link</button> <button class="ghost" data-revoke="${esc(u.id)}">Revoke</button>` : `<button class="ghost" data-restore="${esc(u.id)}">Restore</button>`}</span></li>`);
+      const inv = d.invites.filter(i => !i.user_id || !people.some(u => u.id === i.user_id && u.passkeys)).map(i => `<li><div><strong>${esc(i.name)}</strong><small>Invite open · until ${esc(ukShort(i.expires_at))}</small></div><button class="ghost" data-uninvite="${esc(i.id)}">Cancel</button></li>`);
+      el.innerHTML = rows.length || inv.length ? `<ul class="nx-users">${rows.join('')}${inv.join('')}</ul>` : '<p class="nx-small">No testers yet.</p>';
+      el.querySelectorAll('[data-revoke]').forEach(b => b.onclick = async () => { if (!confirm('Switch this account off? They are signed out straight away. Their data is kept.')) return; try { await authApi('user-revoke', { id: b.dataset.revoke }); listUsers(); } catch (e) { say(e.message); } });
+      el.querySelectorAll('[data-restore]').forEach(b => b.onclick = async () => { try { await authApi('user-restore', { id: b.dataset.restore }); listUsers(); } catch (e) { say(e.message); } });
+      el.querySelectorAll('[data-uninvite]').forEach(b => b.onclick = async () => { try { await authApi('invite-revoke', { id: b.dataset.uninvite }); listUsers(); } catch (e) { say(e.message); } });
+      el.querySelectorAll('[data-newlink]').forEach(b => b.onclick = async () => { try { showLink(await authApi('invite-create', { user_id: b.dataset.newlink })); listUsers(); } catch (e) { say(e.message); } });
+    } catch (e) { fail(el, e); }
   }
 
   // ---------------- guest chat ----------------

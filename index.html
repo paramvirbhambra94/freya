@@ -6,12 +6,17 @@
 <meta name="theme-color" content="#080D17">
 <meta name="color-scheme" content="dark">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Neuro">
+<meta name="format-detection" content="telephone=no">
 <title>Neuro · Powered by Freya</title>
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
-<link rel="stylesheet" href="/style.css?v=neuro31">
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+<link rel="stylesheet" href="/style.css?v=neuro32">
 </head>
 <body>
 <div id="splash" aria-hidden="true"><img src="/brand/neuro-logo.svg" width="280" height="84" alt=""></div><script>(function(){var s=document.getElementById("splash");setTimeout(function(){s.remove()},650)})();</script>
@@ -48,9 +53,10 @@
 <section id="nx-sheet" hidden aria-modal="true" role="dialog"><div class="nx-sheet-in"><div class="nx-sheet-head"><button id="nx-sheet-back" class="link" aria-label="Back">‹ Back</button><strong id="nx-sheet-title"></strong><span></span></div><div id="nx-sheet-body"></div></div></section>
 <div id="nx-listen" hidden role="status"><i></i><span id="nx-listen-t">Sleep Focus listening</span><button id="nx-listen-stop">Stop</button></div>
 <div id="nx-guestbar" hidden role="status"><span id="nx-guest-t">Guest chat</span><button id="nx-guest-end">End</button></div>
-<script src="/neuro-shell.js?v=31" defer></script>
+<script src="/neuro-shell.js?v=32" defer></script>
 <form id="textbar" hidden autocomplete="off"><input id="textin" placeholder="Type to Freya…" enterkeyhint="send"><button>Send</button></form>
 <div id="toast" aria-live="polite"></div>
+<section id="a2hs" hidden role="dialog" aria-label="Add Neuro to your Home Screen"><div class="sheet"><p class="kicker">Put Neuro on your Home Screen</p><div id="a2hs-steps"></div><button id="a2hs-close">Got it</button></div></section>
 <button id="redo" hidden>Redo setup</button>
 <button id="notify" class="chip" hidden>Turn on reminders</button>
 <button id="gchip" class="chip g" hidden>Connect Google (JSE)</button>
@@ -75,6 +81,16 @@
     <div data-v="enrol" hidden>
       <p>One-time setup, Eesah. Lock me to your fingerprint so nobody else can open your life.</p>
       <button id="btn-enrol">Set up fingerprint</button>
+    </div>
+    <div data-v="invite" hidden>
+      <p id="inv-msg">Checking your invite…</p>
+      <button id="btn-invite">Create your passkey</button>
+      <p id="inv-exp" class="hint"></p>
+    </div>
+    <div data-v="welcome" hidden>
+      <p id="inv-done"></p>
+      <div id="inv-steps"></div>
+      <button id="btn-welcome" class="ghost">Continue in Safari for now</button>
     </div>
     <div data-v="recovery" hidden>
       <p>Your recovery code. Save it somewhere safe (a screenshot in a private album works). It's the only way to add a new phone if you lose this one, and you won't see it again.</p>
@@ -114,7 +130,7 @@
     <button id="commit">Sign &amp; commit</button>
   </div>
 </section>
-<script src="/app.js"></script>
+<script src="/app.js?v=mu1"></script>
 <script src="/sections.js"></script>
 <script src="/eyes.js"></script>
 <script src="/freya-entity.js?v=07" defer></script></body>

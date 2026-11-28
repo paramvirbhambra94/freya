@@ -12,7 +12,7 @@ async function usage() {
 async function save(u) {
   await db('voice_usage?on_conflict=day', { method: 'POST', prefer: 'resolution=merge-duplicates', body: { day: day(), seconds: u.seconds, sessions: u.sessions, updated_at: new Date().toISOString() } });
 }
-const outMsg = m => `You've used today's ${m} minutes of voice with Freya. Typing still works, and voice resets at midnight (UK time).`;
+const outMsg = m => `You've used today's ${m} minutes with Freya. Your time resets at midnight (UK time).`;
 // Called before minting a voice token.
 async function gate() {
   if (isOwner()) return { ok: true, unlimited: true };

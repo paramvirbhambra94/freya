@@ -791,3 +791,18 @@ body:not(.mini) #redo,body:not(.mini) .chip:not(#nx-prompts .chip){display:none!
 @media (min-width:900px){body:not(.mini) main{padding-left:24px;padding-right:24px}.nx-spaces{grid-template-columns:repeat(3,1fr)}.nx-quick button{min-height:84px}}
 body:not(.mini)[data-neuro-page] #redo:not([hidden]){display:none!important}
 .nx-card,.nx-sheet-in{text-align:left}
+/* Invited accounts: owner-only integrations are not shown */
+body.tester #gchip,body.tester #glink,body.tester #mbtn,body.tester #money,body.tester .owner-only{display:none!important}
+/* iPhone: Add to Home Screen guide */
+#a2hs{position:fixed;left:0;right:0;bottom:0;z-index:40;padding:12px 12px calc(12px + env(safe-area-inset-bottom));display:grid;justify-items:center}
+#a2hs[hidden]{display:none}
+#a2hs .sheet{width:100%;max-width:460px;text-align:left;box-shadow:0 -10px 40px rgba(0,0,0,.6)}
+.a2hs-steps{margin:0;padding-left:20px;display:grid;gap:8px;text-align:left;font-size:14px;line-height:1.45}
+.a2hs-steps span{opacity:.7}
+#lock .a2hs-steps{max-width:320px}
+/* Testers admin (owner Settings) */
+.nx-users{list-style:none;margin:0;padding:0;display:grid;gap:10px}
+.nx-users li{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.nx-users small{display:block;opacity:.65;font-size:12px}
+.nx-users button{padding:6px 10px;font-size:12px}
+.nx-invlink{word-break:break-all;font-size:12px;user-select:all;background:rgba(255,255,255,.06);padding:8px;border-radius:8px}
